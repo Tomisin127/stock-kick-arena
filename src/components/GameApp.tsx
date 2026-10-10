@@ -7,7 +7,7 @@ import { STOCKS, GAME_CREATOR, KICK_USD, type Stock } from "@/lib/stocks";
 import { Pitch } from "@/components/game/Pitch";
 
 type Kick = { id: number; status: "pending" | "sent" | "failed"; hash?: string };
-type Wallet = { ready: boolean; authed: boolean; address?: string; email?: string; login: () => void; logout: () => void; pay: () => Promise<string> };
+type Wallet = { ready: boolean; authed: boolean; address?: string | undefined; email?: string | undefined; login: () => void; logout: () => unknown; pay: () => Promise<string> };
 
 export default function GameApp() {
   if (!PRIVY_APP_ID) return <Shell wallet={null} />;
@@ -18,8 +18,8 @@ export default function GameApp() {
         loginMethods: ["email"],
         appearance: { theme: "dark", accentColor: "#f5c542" },
         embeddedWallets: { ethereum: { createOnLogin: "users-without-wallets" }, showWalletUIs: false },
-        defaultChain: base,
-        supportedChains: [base],
+        defaultChain: base as any,
+        supportedChains: [base as any],
       }}
     >
       <PrivyBridge />
