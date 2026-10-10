@@ -45,10 +45,10 @@ export function step(bodies: Body[]): 0 | 1 | null {
     walls(b);
   }
   for (let i = 0; i < bodies.length; i++)
-    for (let j = i + 1; j < bodies.length; j++) collide(bodies[i], bodies[j]);
+    for (let j = i + 1; j < bodies.length; j++) collide(bodies[i]!, bodies[j]!);
   for (const b of bodies) for (const p of POSTS) collidePost(b, p);
 
-  const ball = bodies[bodies.length - 1];
+  const ball = bodies[bodies.length - 1]!;
   if (ball.y < PITCH.t - ball.r) return 0;
   if (ball.y > PITCH.b + ball.r) return 1;
   return null;
@@ -94,7 +94,7 @@ export const moving = (bodies: Body[]) => bodies.some((b) => b.vx !== 0 || b.vy 
 
 /** CPU picks a disc + velocity aimed at pushing the ball toward the bottom goal. */
 export function cpuMove(bodies: Body[]): { idx: number; vx: number; vy: number } {
-  const ball = bodies[bodies.length - 1];
+  const ball = bodies[bodies.length - 1]!;
   const gx = cx, gy = PITCH.b + 20;
   const gdx = gx - ball.x, gdy = gy - ball.y, gd = Math.hypot(gdx, gdy);
   const ux = gdx / gd, uy = gdy / gd;
@@ -107,7 +107,7 @@ export function cpuMove(bodies: Body[]): { idx: number; vx: number; vy: number }
     const score = align * 2 - d / 300;
     if (score > best.score) best = { idx, score, tx: hx, ty: hy };
   });
-  const b = bodies[best.idx];
+  const b = bodies[best.idx]!;
   let ang = Math.atan2(best.ty - b.y, best.tx - b.x) + (Math.random() - 0.5) * 0.12;
   const d = Math.hypot(best.tx - b.x, best.ty - b.y);
   const speed = Math.min(MAX_SPEED, 11 + d * 0.035 + Math.random() * 4);

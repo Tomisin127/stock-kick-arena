@@ -14,7 +14,7 @@ function makeFans(): Fan[] {
   const add = (x: number, y: number) => {
     const team = (y > H / 2 ? 0 : 1) as 0 | 1;
     const pool = team === 0 ? [BLUE, "#2563eb", "#ffffff", "#facc15"] : [RED, "#dc2626", "#ffffff", "#facc15"];
-    fans.push({ x, y, c: pool[Math.floor(Math.random() * pool.length)], skin: SKINS[Math.floor(Math.random() * SKINS.length)], phase: Math.random() * 6.28, team });
+    fans.push({ x, y, c: pool[Math.floor(Math.random() * pool.length)]!, skin: SKINS[Math.floor(Math.random() * SKINS.length)]!, phase: Math.random() * 6.28, team });
   };
   for (let row = 0; row < 3; row++) {
     for (let x = 30; x < W - 20; x += 22) { add(x + (row % 2) * 11, 30 + row * 24); add(x + (row % 2) * 11, H - 30 - row * 24); }
@@ -56,7 +56,7 @@ export function Pitch({
       cpuTimer = setTimeout(() => {
         if (phase.current !== "aim" || turn.current !== 1) return;
         const m = cpuMove(bodies.current);
-        const b = bodies.current[m.idx];
+        const b = bodies.current[m.idx]!;
         b.vx = m.vx; b.vy = m.vy;
         lastKicker.current = 1;
         phase.current = "moving";
@@ -146,7 +146,7 @@ export function Pitch({
       // aim line
       const dr = drag.current;
       if (dr) {
-        const b = bodies.current[dr.idx];
+        const b = bodies.current[dr.idx]!;
         let dx = b.x - dr.px, dy = b.y - dr.py; const len = Math.min(Math.hypot(dx, dy), MAX_PULL);
         const a = Math.atan2(dy, dx);
         dx = Math.cos(a) * len; dy = Math.sin(a) * len;
@@ -206,7 +206,7 @@ export function Pitch({
   const up = () => {
     const d = drag.current; drag.current = null;
     if (!d) return;
-    const b = bodies.current[d.idx];
+    const b = bodies.current[d.idx]!;
     const dx = b.x - d.px, dy = b.y - d.py, len = Math.hypot(dx, dy);
     if (len < 12) return;
     const sp = (Math.min(len, MAX_PULL) / MAX_PULL) * MAX_SPEED;

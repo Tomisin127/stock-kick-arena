@@ -59,9 +59,9 @@ function useEthPrice() {
 
 function Shell({ wallet }: { wallet: Wallet | null }) {
   const [screen, setScreen] = useState<"lobby" | "match" | "result">("lobby");
-  const [pick, setPick] = useState<Stock>(STOCKS[0]);
+  const [pick, setPick] = useState<Stock>(STOCKS[0]!);
   const [stake, setStake] = useState(1);
-  const [cpu, setCpu] = useState<Stock>(STOCKS[1]);
+  const [cpu, setCpu] = useState<Stock>(STOCKS[1]!);
   const [kicks, setKicks] = useState<Kick[]>([]);
   const [final, setFinal] = useState<[number, number]>([0, 0]);
   const kid = useRef(0);
@@ -77,7 +77,7 @@ function Shell({ wallet }: { wallet: Wallet | null }) {
 
   const start = () => {
     const others = STOCKS.filter((s) => s.ticker !== pick.ticker);
-    setCpu(others[Math.floor(Math.random() * others.length)]);
+    setCpu(others[Math.floor(Math.random() * others.length)]!);
     setKicks([]);
     setScreen("match");
   };
