@@ -14,10 +14,143 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      lend_positions: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          player_id: string
+          protocol: string
+          ticker: string
+          usd_value: number
+          withdrawn_at: string | null
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          id?: string
+          player_id: string
+          protocol: string
+          ticker: string
+          usd_value: number
+          withdrawn_at?: string | null
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          player_id?: string
+          protocol?: string
+          ticker?: string
+          usd_value?: number
+          withdrawn_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lend_positions_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "leaderboard"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lend_positions_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      match_reports: {
+        Row: {
+          created_at: string
+          match_id: string
+          player_id: string
+        }
+        Insert: {
+          created_at?: string
+          match_id: string
+          player_id: string
+        }
+        Update: {
+          created_at?: string
+          match_id?: string
+          player_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "match_reports_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "leaderboard"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "match_reports_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      players: {
+        Row: {
+          created_at: string
+          game_points: number
+          goals: number
+          id: string
+          key_hash: string
+          kicks: number
+          losses: number
+          name: string
+          pvp_wins: number
+          wins: number
+        }
+        Insert: {
+          created_at?: string
+          game_points?: number
+          goals?: number
+          id?: string
+          key_hash: string
+          kicks?: number
+          losses?: number
+          name: string
+          pvp_wins?: number
+          wins?: number
+        }
+        Update: {
+          created_at?: string
+          game_points?: number
+          goals?: number
+          id?: string
+          key_hash?: string
+          kicks?: number
+          losses?: number
+          name?: string
+          pvp_wins?: number
+          wins?: number
+        }
+        Relationships: []
+      }
     }
     Views: {
-      [_ in never]: never
+      leaderboard: {
+        Row: {
+          game_points: number | null
+          goals: number | null
+          id: string | null
+          lend_points: number | null
+          lent_usd: number | null
+          losses: number | null
+          name: string | null
+          pvp_wins: number | null
+          total_points: number | null
+          wins: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       [_ in never]: never
