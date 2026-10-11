@@ -38,12 +38,25 @@ function makeFans(): Fan[] {
 
 const ADS = ["STOCKBALL", "ONCHAIN", "BASE", "KICK = TX", "TOKENIZED", "GOAL!"];
 
+// Online sync: host (team 0) runs physics; guest (team 1) sends kicks and renders snapshots.
+export type NetMsg =
+  | { t: "kick"; idx: number; vx: number; vy: number }
+  | { t: "s"; b: number[]; turn: 0 | 1; phase: string; sc: [number, number]; lk: 0 | 1 }
+  | { t: "fx"; k: "kick" | "bounce" | "goal" | "whistle"; x?: number; y?: number; g?: 0 | 1; v?: number }
+  | { t: "banner"; text: string | null }
+  | { t: "end"; sc: [number, number] };
+export type Net = { role: "host" | "guest"; send: (m: NetMsg) => void; listen: (fn: (m: NetMsg) => void) => () => void };
+
 export function Pitch({
-  player, cpu, onKick, onGoal, onEnd, target = 3,
+  player, cpu, onKick, onGoal, onEnd, target = 3, net, oppName = "CPU",
 }: {
   player: Stock; cpu: Stock; onKick: () => void;
   onGoal?: (team: 0 | 1) => void; onEnd: (score: [number, number]) => void; target?: number;
+  net?: Net; oppName?: string;
 }) {
+  // In online mode `player` = host's stock (team 0), `cpu` = guest's stock (team 1).
+  const myTeam: 0 | 1 = net?.role === "guest" ? 1 : 0;
+  const flip = myTeam === 1;
   const canvas = useRef<HTMLCanvasElement>(null);
   const bodies = useRef<Body[]>([]);
   const fans = useRef<Fan[]>([]);
@@ -71,76 +84,141 @@ export function Pitch({
       parts.current.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 40 + Math.random() * 40, c: pick(colors), s: size * (0.5 + Math.random()), rot: Math.random() * 6 });
     }
   };
+  const fxKick = (x: number, y: number, v: number) => { sfxKick(v); burst(x, y, 10, ["#e9f5d0", "#b9e08a"], 3, 3); };
+  const fxGoal = (g: 0 | 1) => {
+    cheer.current = 180; shake.current = 14; flash.current = 1;
+    burst((GOAL.x1 + GOAL.x2) / 2, g === 0 ? PITCH.t : PITCH.b, 90, CONFETTI, 9, 6);
+    for (let k = 0; k < 6; k++) burst(60 + Math.random() * (W - 120), g === 0 ? 60 : H - 60, 15, CONFETTI, 6, 5);
+    sfxGoal();
+  };
+  const sendRef = useRef(net);
+  sendRef.current = net;
 
   useEffect(() => {
     bodies.current = setup();
     fans.current = makeFans();
     const ctx = canvas.current!.getContext("2d")!;
     let raf = 0, t = 0, cpuTimer: ReturnType<typeof setTimeout> | null = null;
+    const isGuest = net?.role === "guest";
+    const isHost = net?.role === "host";
+    const send = (m: NetMsg) => sendRef.current?.send(m);
     sfxWhistle();
 
-    const scheduleCpu = () => {
+    const showBanner = (text: string | null) => { setBanner(text); if (isHost) send({ t: "banner", text }); };
+    const snapshot = () => {
+      if (!isHost) return;
+      send({ t: "s", b: bodies.current.flatMap((b) => [Math.round(b.x * 10) / 10, Math.round(b.y * 10) / 10, +(b.vx !== 0 || b.vy !== 0)]),
+        turn: turn.current, phase: phase.current, sc: scoreRef.current, lk: lastKicker.current });
+    };
+
+    const applyKick = (team: 0 | 1, idx: number, vx: number, vy: number) => {
+      const b = bodies.current[idx];
+      if (!b || b.team !== team || phase.current !== "aim" || turn.current !== team) return;
+      const sp = Math.hypot(vx, vy);
+      if (!isFinite(sp) || sp === 0) return;
+      const k = Math.min(1, MAX_SPEED / sp);
+      b.vx = vx * k; b.vy = vy * k;
+      fxKick(b.x, b.y, Math.min(sp, MAX_SPEED) / MAX_SPEED);
+      if (isHost) send({ t: "fx", k: "kick", x: b.x, y: b.y, v: Math.min(sp, MAX_SPEED) / MAX_SPEED });
+      lastKicker.current = team;
+      phase.current = "moving";
+      snapshot();
+    };
+
+    const opponentTurn = () => {
+      if (net) return; // online: wait for opponent's kick message
       cpuTimer = setTimeout(() => {
         if (phase.current !== "aim" || turn.current !== 1) return;
         const m = cpuMove(bodies.current);
-        const b = bodies.current[m.idx]!;
-        b.vx = m.vx; b.vy = m.vy;
-        sfxKick(Math.hypot(m.vx, m.vy) / MAX_SPEED);
-        burst(b.x, b.y, 10, ["#e9f5d0", "#b9e08a"], 3, 3);
-        lastKicker.current = 1;
-        phase.current = "moving";
+        applyKick(1, m.idx, m.vx, m.vy);
       }, 900);
     };
+
+    const unlisten = net?.listen((m) => {
+      if (isHost && m.t === "kick") applyKick(1, m.idx, m.vx, m.vy);
+      if (!isGuest) return;
+      if (m.t === "s") {
+        m.b.forEach((v, i) => {
+          const b = bodies.current[Math.floor(i / 3)]; if (!b) return;
+          const f = i % 3;
+          if (f === 0) b.x = v; else if (f === 1) b.y = v; else { b.vx = v ? 1 : 0; b.vy = 0; }
+        });
+        if (turn.current !== m.turn) { turn.current = m.turn; setTurnUi(m.turn); }
+        phase.current = m.phase as typeof phase.current;
+        lastKicker.current = m.lk;
+        if (m.sc[0] !== scoreRef.current[0] || m.sc[1] !== scoreRef.current[1]) { scoreRef.current = m.sc; setScore(m.sc); }
+      } else if (m.t === "fx") {
+        if (m.k === "kick" && lastKicker.current !== 1) fxKick(m.x ?? 0, m.y ?? 0, m.v ?? 1);
+        if (m.k === "kick") lastKicker.current = 0;
+        if (m.k === "bounce") { sfxBounce(m.v ?? 2); burst(m.x ?? 0, m.y ?? 0, 4, ["#ffffff", GOLD], 2, 2.5); }
+        if (m.k === "goal" && m.g !== undefined) { fxGoal(m.g); cb.current.onGoal?.(m.g); }
+        if (m.k === "whistle") sfxWhistle();
+      } else if (m.t === "banner") {
+        setBanner(m.text === "YOU WIN!" ? "YOU LOSE" : m.text === "THEY WIN!" ? "YOU WIN!" : m.text);
+      } else if (m.t === "end") {
+        sfxWin(m.sc[1] > m.sc[0]);
+        setTimeout(() => cb.current.onEnd(m.sc), 1500);
+      }
+    });
 
     const loop = () => {
       t += 1;
       if (cheer.current > 0) cheer.current -= 1;
       if (shake.current > 0) shake.current *= 0.9;
       if (flash.current > 0) flash.current -= 0.04;
-      if (phase.current === "moving") {
+      if (phase.current === "moving" && !isGuest) {
         for (let s = 0; s < 2; s++) {
           const ball = bodies.current[bodies.current.length - 1]!;
           const pvx = ball.vx, pvy = ball.vy;
           const g = step(bodies.current);
           const dv = Math.hypot(ball.vx - pvx * 0.984, ball.vy - pvy * 0.984);
-          if (dv > 1.5) { sfxBounce(dv); burst(ball.x, ball.y, 4, ["#ffffff", GOLD], 2, 2.5); }
+          if (dv > 1.5) {
+            sfxBounce(dv); burst(ball.x, ball.y, 4, ["#ffffff", GOLD], 2, 2.5);
+            if (isHost) send({ t: "fx", k: "bounce", x: ball.x, y: ball.y, v: dv });
+          }
           if (g !== null) {
             const sc: [number, number] = [...scoreRef.current] as [number, number];
             sc[g] += 1; scoreRef.current = sc; setScore(sc);
-            cheer.current = 180; shake.current = 14; flash.current = 1;
-            const gy = g === 0 ? PITCH.t : PITCH.b;
-            burst((GOAL.x1 + GOAL.x2) / 2, gy, 90, CONFETTI, 9, 6);
-            for (let k = 0; k < 6; k++) burst(60 + Math.random() * (W - 120), g === 0 ? 60 : H - 60, 15, CONFETTI, 6, 5);
-            sfxGoal();
+            fxGoal(g);
+            if (isHost) send({ t: "fx", k: "goal", g });
             cb.current.onGoal?.(g);
             if (sc[g] >= target) {
               phase.current = "over";
-              setBanner(g === 0 ? "YOU WIN!" : "CPU WINS!");
+              showBanner(g === 0 ? "YOU WIN!" : net ? "THEY WIN!" : "CPU WINS!");
+              if (isHost) setBanner(g === 0 ? "YOU WIN!" : "YOU LOSE");
+              snapshot();
               setTimeout(() => sfxWin(g === 0), 700);
+              if (isHost) send({ t: "end", sc });
               setTimeout(() => cb.current.onEnd(sc), 2200);
             } else {
               phase.current = "goal";
-              setBanner("GOAL!");
+              showBanner("GOAL!");
+              snapshot();
               setTimeout(() => {
-                setBanner(null);
+                showBanner(null);
                 bodies.current = setup(); trail.current = [];
                 turn.current = g === 0 ? 1 : 0; setTurnUi(turn.current);
                 phase.current = "aim";
                 sfxWhistle();
-                if (turn.current === 1) scheduleCpu();
+                if (isHost) send({ t: "fx", k: "whistle" });
+                snapshot();
+                if (turn.current === 1) opponentTurn();
               }, 1800);
             }
             break;
           }
         }
+        if (isHost && t % 3 === 0) snapshot();
         if (phase.current === "moving" && !moving(bodies.current)) {
           turn.current = turn.current === 0 ? 1 : 0; setTurnUi(turn.current);
           phase.current = "aim";
-          if (turn.current === 1) scheduleCpu();
+          snapshot();
+          if (turn.current === 1) opponentTurn();
         }
       }
+      if (isHost && t % 60 === 0) snapshot(); // heartbeat so late joiners sync
       const ball = bodies.current[bodies.current.length - 1]!;
-      const sp = Math.hypot(ball.vx, ball.vy);
+      const sp = isGuest ? (ball.vx ? 4 : 0) : Math.hypot(ball.vx, ball.vy);
       ballSpin.current += sp * 0.08;
       if (sp > 2) trail.current.push({ x: ball.x, y: ball.y });
       if (trail.current.length > 14 || (sp <= 2 && trail.current.length)) trail.current.shift();
