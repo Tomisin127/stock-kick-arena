@@ -3,27 +3,40 @@ import {
   W, H, PITCH, GOAL, MAX_PULL, MAX_SPEED, setup, step, moving, cpuMove, type Body,
 } from "@/lib/engine";
 import type { Stock } from "@/lib/stocks";
+import { sfxBounce, sfxGoal, sfxKick, sfxWhistle, sfxWin, setMuted, isMuted } from "@/lib/audio";
 
-type Fan = { x: number; y: number; c: string; skin: string; phase: number; team: 0 | 1 };
-const SHIRTS = ["#3b82f6", "#ef4444", "#facc15", "#ffffff", "#2563eb", "#dc2626"];
+type Fan = { x: number; y: number; c: string; skin: string; phase: number; flag: boolean; hair: string };
+type Particle = { x: number; y: number; vx: number; vy: number; life: number; c: string; s: number; rot: number };
 const SKINS = ["#f1c27d", "#e0ac69", "#8d5524", "#c68642", "#ffdbac"];
-const BLUE = "#3a86ff", RED = "#ef3b3b", OUT = "#1a1d33";
+const HAIR = ["#2b1b0e", "#5a3a1a", "#f2d16b", "#1a1a1a", "#a0522d"];
+const BLUE = "#3a86ff", BLUE_D = "#1e5bd6", RED = "#ef3b3b", RED_D = "#b81f2a", OUT = "#1a1d33", GOLD = "#ffd23f";
+const CONFETTI = [GOLD, "#ffffff", BLUE, RED, "#7CFF6B", "#ff7ad9"];
+
+const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)]!;
 
 function makeFans(): Fan[] {
   const fans: Fan[] = [];
   const add = (x: number, y: number) => {
-    const team = (y > H / 2 ? 0 : 1) as 0 | 1;
-    const pool = team === 0 ? [BLUE, "#2563eb", "#ffffff", "#facc15"] : [RED, "#dc2626", "#ffffff", "#facc15"];
-    fans.push({ x, y, c: pool[Math.floor(Math.random() * pool.length)]!, skin: SKINS[Math.floor(Math.random() * SKINS.length)]!, phase: Math.random() * 6.28, team });
+    const bottom = y > H / 2;
+    const pool = bottom ? [BLUE, BLUE_D, "#ffffff", BLUE] : [RED, RED_D, "#ffffff", RED];
+    fans.push({ x, y, c: pick(pool), skin: pick(SKINS), hair: pick(HAIR), phase: Math.random() * 6.28, flag: Math.random() < 0.08 });
   };
   for (let row = 0; row < 3; row++) {
-    for (let x = 30; x < W - 20; x += 22) { add(x + (row % 2) * 11, 30 + row * 24); add(x + (row % 2) * 11, H - 30 - row * 24); }
-    for (let y = 130; y < H - 120; y += 22) { add(18 + row * 0, y); }
+    for (let x = 26; x < W - 16; x += 21) {
+      add(x + (row % 2) * 10, 24 + row * 25);
+      add(x + (row % 2) * 10, H - 24 - row * 25);
+    }
   }
-  for (let y = 130; y < H - 120; y += 24) { add(W - 20, y + 6); add(20, y + 12); }
-  void SHIRTS;
+  for (let col = 0; col < 2; col++) {
+    for (let y = 118; y < H - 110; y += 21) {
+      add(14 + col * 19, y + (col % 2) * 10);
+      add(W - 14 - col * 19, y + (col % 2) * 10);
+    }
+  }
   return fans;
 }
+
+const ADS = ["STOCKBALL", "ONCHAIN", "BASE", "KICK = TX", "TOKENIZED", "GOAL!"];
 
 export function Pitch({
   player, cpu, onKick, onGoal, onEnd, target = 3,
@@ -34,23 +47,37 @@ export function Pitch({
   const canvas = useRef<HTMLCanvasElement>(null);
   const bodies = useRef<Body[]>([]);
   const fans = useRef<Fan[]>([]);
+  const parts = useRef<Particle[]>([]);
+  const trail = useRef<{ x: number; y: number }[]>([]);
   const turn = useRef<0 | 1>(0);
   const phase = useRef<"aim" | "moving" | "goal" | "over">("aim");
   const drag = useRef<{ idx: number; px: number; py: number } | null>(null);
   const cheer = useRef(0);
+  const shake = useRef(0);
+  const flash = useRef(0);
+  const ballSpin = useRef(0);
   const lastKicker = useRef<0 | 1>(0);
   const [score, setScore] = useState<[number, number]>([0, 0]);
   const scoreRef = useRef<[number, number]>([0, 0]);
   const [turnUi, setTurnUi] = useState<0 | 1>(0);
   const [banner, setBanner] = useState<string | null>(null);
+  const [muted, setMutedUi] = useState(isMuted());
   const cb = useRef({ onKick, onGoal, onEnd });
   cb.current = { onKick, onGoal, onEnd };
+
+  const burst = (x: number, y: number, n: number, colors: string[], speed: number, size = 4) => {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, s = Math.random() * speed;
+      parts.current.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 40 + Math.random() * 40, c: pick(colors), s: size * (0.5 + Math.random()), rot: Math.random() * 6 });
+    }
+  };
 
   useEffect(() => {
     bodies.current = setup();
     fans.current = makeFans();
     const ctx = canvas.current!.getContext("2d")!;
     let raf = 0, t = 0, cpuTimer: ReturnType<typeof setTimeout> | null = null;
+    sfxWhistle();
 
     const scheduleCpu = () => {
       cpuTimer = setTimeout(() => {
@@ -58,6 +85,8 @@ export function Pitch({
         const m = cpuMove(bodies.current);
         const b = bodies.current[m.idx]!;
         b.vx = m.vx; b.vy = m.vy;
+        sfxKick(Math.hypot(m.vx, m.vy) / MAX_SPEED);
+        burst(b.x, b.y, 10, ["#e9f5d0", "#b9e08a"], 3, 3);
         lastKicker.current = 1;
         phase.current = "moving";
       }, 900);
@@ -66,28 +95,40 @@ export function Pitch({
     const loop = () => {
       t += 1;
       if (cheer.current > 0) cheer.current -= 1;
+      if (shake.current > 0) shake.current *= 0.9;
+      if (flash.current > 0) flash.current -= 0.04;
       if (phase.current === "moving") {
         for (let s = 0; s < 2; s++) {
+          const ball = bodies.current[bodies.current.length - 1]!;
+          const pvx = ball.vx, pvy = ball.vy;
           const g = step(bodies.current);
+          const dv = Math.hypot(ball.vx - pvx * 0.984, ball.vy - pvy * 0.984);
+          if (dv > 1.5) { sfxBounce(dv); burst(ball.x, ball.y, 4, ["#ffffff", GOLD], 2, 2.5); }
           if (g !== null) {
             const sc: [number, number] = [...scoreRef.current] as [number, number];
             sc[g] += 1; scoreRef.current = sc; setScore(sc);
-            cheer.current = 150;
+            cheer.current = 180; shake.current = 14; flash.current = 1;
+            const gy = g === 0 ? PITCH.t : PITCH.b;
+            burst((GOAL.x1 + GOAL.x2) / 2, gy, 90, CONFETTI, 9, 6);
+            for (let k = 0; k < 6; k++) burst(60 + Math.random() * (W - 120), g === 0 ? 60 : H - 60, 15, CONFETTI, 6, 5);
+            sfxGoal();
             cb.current.onGoal?.(g);
             if (sc[g] >= target) {
               phase.current = "over";
               setBanner(g === 0 ? "YOU WIN!" : "CPU WINS!");
-              setTimeout(() => cb.current.onEnd(sc), 1800);
+              setTimeout(() => sfxWin(g === 0), 700);
+              setTimeout(() => cb.current.onEnd(sc), 2200);
             } else {
               phase.current = "goal";
               setBanner("GOAL!");
               setTimeout(() => {
                 setBanner(null);
-                bodies.current = setup();
+                bodies.current = setup(); trail.current = [];
                 turn.current = g === 0 ? 1 : 0; setTurnUi(turn.current);
                 phase.current = "aim";
+                sfxWhistle();
                 if (turn.current === 1) scheduleCpu();
-              }, 1600);
+              }, 1800);
             }
             break;
           }
@@ -98,51 +139,135 @@ export function Pitch({
           if (turn.current === 1) scheduleCpu();
         }
       }
+      const ball = bodies.current[bodies.current.length - 1]!;
+      const sp = Math.hypot(ball.vx, ball.vy);
+      ballSpin.current += sp * 0.08;
+      if (sp > 2) trail.current.push({ x: ball.x, y: ball.y });
+      if (trail.current.length > 14 || (sp <= 2 && trail.current.length)) trail.current.shift();
+      for (const p of parts.current) { p.x += p.vx; p.y += p.vy; p.vx *= 0.96; p.vy = p.vy * 0.96 + 0.08; p.life -= 1; p.rot += 0.2; }
+      parts.current = parts.current.filter((p) => p.life > 0);
       draw(ctx, t);
       raf = requestAnimationFrame(loop);
     };
 
     const draw = (c: CanvasRenderingContext2D, t: number) => {
-      // stands
-      c.fillStyle = "#5b4a8a"; c.fillRect(0, 0, W, H);
-      c.fillStyle = "#8b6b4a"; c.fillRect(0, 0, W, 100); c.fillRect(0, H - 100, W, 100);
-      c.fillStyle = "#6e5a9c"; c.fillRect(0, 100, 44, H - 200); c.fillRect(W - 44, 100, 44, H - 200);
+      c.save();
+      if (shake.current > 0.5) c.translate((Math.random() - 0.5) * shake.current, (Math.random() - 0.5) * shake.current);
+
+      // stadium base + tiered stands
+      const bg = c.createLinearGradient(0, 0, 0, H);
+      bg.addColorStop(0, "#3b2a6b"); bg.addColorStop(0.5, "#2a2050"); bg.addColorStop(1, "#1f3a7a");
+      c.fillStyle = bg; c.fillRect(-20, -20, W + 40, H + 40);
+      for (let row = 0; row < 4; row++) {
+        c.fillStyle = row % 2 ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.12)";
+        c.fillRect(0, row * 25, W, 25); c.fillRect(0, H - (row + 1) * 25, W, 25);
+        c.fillRect(row * 19, 100, 19, H - 200); c.fillRect(W - (row + 1) * 19, 100, 19, H - 200);
+      }
+      // team colored seat sections
+      c.fillStyle = "rgba(239,59,59,0.18)"; c.fillRect(0, 0, W, 98);
+      c.fillStyle = "rgba(58,134,255,0.2)"; c.fillRect(0, H - 98, W, 98);
+
       const excited = cheer.current > 0;
       for (const f of fans.current) {
-        const amp = excited ? 6 : 1.4;
-        const by = Math.sin(t * (excited ? 0.35 : 0.06) + f.phase) * amp;
+        const amp = excited ? 7 : 1.3;
+        const by = Math.sin(t * (excited ? 0.38 : 0.05) + f.phase) * amp;
+        // body
         c.fillStyle = f.c; c.strokeStyle = OUT; c.lineWidth = 2;
-        c.beginPath(); c.arc(f.x, f.y + 4 + by * 0.5, 8, 0, 6.29); c.fill(); c.stroke();
-        c.fillStyle = f.skin; c.beginPath(); c.arc(f.x, f.y - 3 + by, 5.5, 0, 6.29); c.fill(); c.stroke();
-        if (excited) {
+        c.beginPath(); c.ellipse(f.x, f.y + 5 + by * 0.4, 8.5, 7, 0, 0, 6.29); c.fill(); c.stroke();
+        // head
+        c.fillStyle = f.skin; c.beginPath(); c.arc(f.x, f.y - 3 + by, 6, 0, 6.29); c.fill(); c.stroke();
+        c.fillStyle = f.hair; c.beginPath(); c.arc(f.x, f.y - 5 + by, 5, Math.PI, 0); c.fill();
+        if (excited || f.flag) {
           c.strokeStyle = f.skin; c.lineWidth = 3;
-          c.beginPath(); c.moveTo(f.x - 6, f.y + by); c.lineTo(f.x - 9, f.y - 9 + by);
-          c.moveTo(f.x + 6, f.y + by); c.lineTo(f.x + 9, f.y - 9 + by); c.stroke();
+          const wave = Math.sin(t * 0.4 + f.phase) * 3;
+          c.beginPath(); c.moveTo(f.x - 6, f.y + 1 + by); c.lineTo(f.x - 9 + wave, f.y - 11 + by);
+          c.moveTo(f.x + 6, f.y + 1 + by); c.lineTo(f.x + 9 - wave, f.y - 11 + by); c.stroke();
+        }
+        if (f.flag) {
+          const fx = f.x + 9, fy = f.y - 22 + by, w = Math.sin(t * 0.15 + f.phase) * 4;
+          c.strokeStyle = "#ddd"; c.lineWidth = 2; c.beginPath(); c.moveTo(fx, fy + 12); c.lineTo(fx, fy - 4); c.stroke();
+          c.fillStyle = f.y > H / 2 ? BLUE : RED; c.strokeStyle = OUT; c.lineWidth = 1.5;
+          c.beginPath(); c.moveTo(fx, fy - 4); c.quadraticCurveTo(fx + 8, fy - 6 + w, fx + 16, fy - 2 + w); c.lineTo(fx + 16, fy + 6 + w); c.quadraticCurveTo(fx + 8, fy + 3 + w, fx, fy + 4); c.closePath(); c.fill(); c.stroke();
         }
       }
-      // pitch border
-      c.fillStyle = OUT; roundRect(c, PITCH.l - 16, PITCH.t - 16, PITCH.r - PITCH.l + 32, PITCH.b - PITCH.t + 32, 18); c.fill();
-      c.fillStyle = "#c2a36b"; roundRect(c, PITCH.l - 12, PITCH.t - 12, PITCH.r - PITCH.l + 24, PITCH.b - PITCH.t + 24, 14); c.fill();
-      const stripes = 10, sh = (PITCH.b - PITCH.t) / stripes;
+
+      // floodlight glows
+      for (const [lx, ly] of [[0, 0], [W, 0], [0, H], [W, H]] as const) {
+        const gl = c.createRadialGradient(lx, ly, 0, lx, ly, 260);
+        gl.addColorStop(0, "rgba(255,245,200,0.35)"); gl.addColorStop(1, "rgba(255,245,200,0)");
+        c.fillStyle = gl; c.fillRect(lx - 260, ly - 260, 520, 520);
+        c.fillStyle = "#2b2f4a"; c.strokeStyle = OUT; c.lineWidth = 3;
+        const px = lx === 0 ? 4 : W - 34, py = ly === 0 ? 4 : H - 24;
+        roundRect(c, px, py, 30, 20, 5); c.fill(); c.stroke();
+        c.fillStyle = `rgba(255,250,210,${0.8 + Math.sin(t * 0.05) * 0.2})`;
+        for (let k = 0; k < 3; k++) { c.beginPath(); c.arc(px + 7 + k * 8, py + 10, 3, 0, 6.29); c.fill(); }
+      }
+
+      // pitch wall + LED ad boards
+      c.fillStyle = OUT; roundRect(c, PITCH.l - 22, PITCH.t - 22, PITCH.r - PITCH.l + 44, PITCH.b - PITCH.t + 44, 22); c.fill();
+      const led = c.createLinearGradient(0, PITCH.t - 20, 0, PITCH.b + 20);
+      led.addColorStop(0, "#1a0f3a"); led.addColorStop(1, "#0f1f4a");
+      c.fillStyle = led; roundRect(c, PITCH.l - 18, PITCH.t - 18, PITCH.r - PITCH.l + 36, PITCH.b - PITCH.t + 36, 18); c.fill();
+      c.font = "13px 'Lilita One', sans-serif"; c.textBaseline = "middle"; c.textAlign = "center";
+      const scroll = (t * 0.6) % 90;
+      c.save();
+      c.beginPath(); c.rect(PITCH.l - 18, PITCH.t - 18, PITCH.r - PITCH.l + 36, PITCH.b - PITCH.t + 36); c.clip();
+      for (let i = -1; i < 8; i++) {
+        const label = ADS[(i + 60) % ADS.length]!;
+        const hue = excited ? (t * 8 + i * 40) % 360 : 45;
+        c.fillStyle = excited ? `hsl(${hue} 100% 65%)` : GOLD;
+        const x = PITCH.l + i * 90 + scroll;
+        if (x < GOAL.x1 - 30 || x > GOAL.x2 + 30) { c.fillText(label, x, PITCH.t - 9); c.fillText(label, W - x, PITCH.b + 9); }
+      }
+      c.restore();
+
+      // grass
+      const stripes = 12, sh = (PITCH.b - PITCH.t) / stripes;
       for (let i = 0; i < stripes; i++) {
-        c.fillStyle = i % 2 ? "#5cbf4a" : "#4fae3e";
+        c.fillStyle = i % 2 ? "#5fc94b" : "#51b63f";
         c.fillRect(PITCH.l, PITCH.t + i * sh, PITCH.r - PITCH.l, sh + 1);
       }
-      c.strokeStyle = "rgba(255,255,255,0.85)"; c.lineWidth = 4;
+      for (let i = 0; i < 8; i++) {
+        c.fillStyle = "rgba(255,255,255,0.03)";
+        if (i % 2) c.fillRect(PITCH.l + i * ((PITCH.r - PITCH.l) / 8), PITCH.t, (PITCH.r - PITCH.l) / 8, PITCH.b - PITCH.t);
+      }
+      const vg = c.createRadialGradient(W / 2, H / 2, 150, W / 2, H / 2, 480);
+      vg.addColorStop(0, "rgba(255,255,220,0.08)"); vg.addColorStop(1, "rgba(0,20,0,0.28)");
+      c.fillStyle = vg; c.fillRect(PITCH.l, PITCH.t, PITCH.r - PITCH.l, PITCH.b - PITCH.t);
+
+      // lines
+      c.strokeStyle = "rgba(255,255,255,0.9)"; c.lineWidth = 4;
       c.strokeRect(PITCH.l + 2, PITCH.t + 2, PITCH.r - PITCH.l - 4, PITCH.b - PITCH.t - 4);
       const mx = (PITCH.l + PITCH.r) / 2, my = (PITCH.t + PITCH.b) / 2;
       c.beginPath(); c.moveTo(PITCH.l, my); c.lineTo(PITCH.r, my); c.stroke();
-      c.beginPath(); c.arc(mx, my, 70, 0, 6.29); c.stroke();
-      c.strokeRect(mx - 120, PITCH.t, 240, 110); c.strokeRect(mx - 120, PITCH.b - 110, 240, 110);
+      c.beginPath(); c.arc(mx, my, 72, 0, 6.29); c.stroke();
+      c.fillStyle = "rgba(255,255,255,0.9)"; c.beginPath(); c.arc(mx, my, 5, 0, 6.29); c.fill();
+      c.strokeRect(mx - 125, PITCH.t, 250, 115); c.strokeRect(mx - 125, PITCH.b - 115, 250, 115);
+      c.strokeRect(mx - 60, PITCH.t, 120, 45); c.strokeRect(mx - 60, PITCH.b - 45, 120, 45);
+      c.beginPath(); c.arc(mx, PITCH.t + 115, 40, 0.15 * Math.PI, 0.85 * Math.PI); c.stroke();
+      c.beginPath(); c.arc(mx, PITCH.b - 115, 40, 1.15 * Math.PI, 1.85 * Math.PI); c.stroke();
+      for (const [x, y, a0] of [[PITCH.l, PITCH.t, 0], [PITCH.r, PITCH.t, 0.5], [PITCH.r, PITCH.b, 1], [PITCH.l, PITCH.b, 1.5]] as const) {
+        c.beginPath(); c.arc(x, y, 14, a0 * Math.PI, (a0 + 0.5) * Math.PI); c.stroke();
+        // corner flags
+        const w = Math.sin(t * 0.12 + x) * 3;
+        c.strokeStyle = "#eee"; c.lineWidth = 2; c.beginPath(); c.moveTo(x, y); c.lineTo(x, y - 18); c.stroke();
+        c.fillStyle = y < H / 2 ? RED : BLUE; c.beginPath(); c.moveTo(x, y - 18); c.lineTo(x + 12, y - 14 + w); c.lineTo(x, y - 10); c.fill();
+        c.strokeStyle = "rgba(255,255,255,0.9)"; c.lineWidth = 4;
+      }
+
       // goals
       for (const [y, dir, col] of [[PITCH.t, -1, RED], [PITCH.b, 1, BLUE]] as const) {
-        c.fillStyle = "rgba(255,255,255,0.25)";
-        c.fillRect(GOAL.x1, dir < 0 ? y - GOAL.depth : y, GOAL.x2 - GOAL.x1, GOAL.depth);
-        c.strokeStyle = "rgba(255,255,255,0.5)"; c.lineWidth = 1;
-        for (let x = GOAL.x1; x <= GOAL.x2; x += 10) { c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + dir * GOAL.depth); c.stroke(); }
+        const gy = dir < 0 ? y - GOAL.depth : y;
+        c.fillStyle = "rgba(10,15,40,0.55)"; c.fillRect(GOAL.x1, gy, GOAL.x2 - GOAL.x1, GOAL.depth);
+        c.strokeStyle = "rgba(255,255,255,0.55)"; c.lineWidth = 1;
+        for (let x = GOAL.x1; x <= GOAL.x2; x += 9) { c.beginPath(); c.moveTo(x, y); c.lineTo(x, y + dir * GOAL.depth); c.stroke(); }
+        for (let d = 0; d <= GOAL.depth; d += 9) { c.beginPath(); c.moveTo(GOAL.x1, y + dir * d); c.lineTo(GOAL.x2, y + dir * d); c.stroke(); }
+        c.strokeStyle = "#ffffff"; c.lineWidth = 6;
+        c.beginPath(); c.moveTo(GOAL.x1, y); c.lineTo(GOAL.x1, y + dir * GOAL.depth); c.lineTo(GOAL.x2, y + dir * GOAL.depth); c.lineTo(GOAL.x2, y); c.stroke();
         c.fillStyle = col; c.strokeStyle = OUT; c.lineWidth = 3;
-        for (const x of [GOAL.x1, GOAL.x2]) { c.beginPath(); c.arc(x, y, 7, 0, 6.29); c.fill(); c.stroke(); }
+        for (const x of [GOAL.x1, GOAL.x2]) { c.beginPath(); c.arc(x, y, 8, 0, 6.29); c.fill(); c.stroke(); }
       }
+
       // aim line
       const dr = drag.current;
       if (dr) {
@@ -150,36 +275,65 @@ export function Pitch({
         let dx = b.x - dr.px, dy = b.y - dr.py; const len = Math.min(Math.hypot(dx, dy), MAX_PULL);
         const a = Math.atan2(dy, dx);
         dx = Math.cos(a) * len; dy = Math.sin(a) * len;
-        c.strokeStyle = "#ffe14d"; c.lineWidth = 6; c.setLineDash([10, 8]);
-        c.beginPath(); c.moveTo(b.x, b.y); c.lineTo(b.x + dx * 1.6, b.y + dy * 1.6); c.stroke(); c.setLineDash([]);
-        c.fillStyle = "#ffe14d"; c.strokeStyle = OUT; c.lineWidth = 3;
-        c.beginPath(); c.arc(b.x + dx * 1.6, b.y + dy * 1.6, 9, 0, 6.29); c.fill(); c.stroke();
+        const pw = len / MAX_PULL;
+        c.strokeStyle = `hsl(${60 - pw * 60} 100% 60%)`; c.lineWidth = 7; c.setLineDash([12, 8]); c.lineDashOffset = -t;
+        c.beginPath(); c.moveTo(b.x, b.y); c.lineTo(b.x + dx * 1.7, b.y + dy * 1.7); c.stroke(); c.setLineDash([]);
+        c.fillStyle = c.strokeStyle; c.strokeStyle = OUT; c.lineWidth = 3;
+        c.save(); c.translate(b.x + dx * 1.7, b.y + dy * 1.7); c.rotate(a);
+        c.beginPath(); c.moveTo(14, 0); c.lineTo(-8, -11); c.lineTo(-8, 11); c.closePath(); c.fill(); c.stroke(); c.restore();
+        // power ring
+        c.strokeStyle = GOLD; c.lineWidth = 5;
+        c.beginPath(); c.arc(b.x, b.y, b.r + 10, -Math.PI / 2, -Math.PI / 2 + pw * Math.PI * 2); c.stroke();
       }
-      // bodies
+
+      // ball trail
       const ballStock = lastKicker.current === 0 ? player : cpu;
+      trail.current.forEach((p, i) => {
+        c.fillStyle = `rgba(255,255,255,${(i / trail.current.length) * 0.4})`;
+        c.beginPath(); c.arc(p.x, p.y, 4 + (i / trail.current.length) * 9, 0, 6.29); c.fill();
+      });
+
+      // bodies
       for (const [i, b] of bodies.current.entries()) {
-        c.fillStyle = "rgba(0,0,0,0.25)"; c.beginPath(); c.ellipse(b.x + 3, b.y + 6, b.r, b.r * 0.8, 0, 0, 6.29); c.fill();
+        c.fillStyle = "rgba(0,0,0,0.3)"; c.beginPath(); c.ellipse(b.x + 4, b.y + 7, b.r, b.r * 0.8, 0, 0, 6.29); c.fill();
         if (b.team === -1) {
-          c.fillStyle = "#fff"; c.strokeStyle = OUT; c.lineWidth = 3;
+          const bg2 = c.createRadialGradient(b.x - 5, b.y - 5, 2, b.x, b.y, b.r);
+          bg2.addColorStop(0, "#ffffff"); bg2.addColorStop(1, "#cfd6e6");
+          c.fillStyle = bg2; c.strokeStyle = OUT; c.lineWidth = 3;
           c.beginPath(); c.arc(b.x, b.y, b.r, 0, 6.29); c.fill(); c.stroke();
+          c.save(); c.translate(b.x, b.y); c.rotate(ballSpin.current);
           c.strokeStyle = ballStock.color; c.lineWidth = 4;
-          c.beginPath(); c.arc(b.x, b.y, b.r - 4, 0, 6.29); c.stroke();
-          c.fillStyle = OUT; c.font = `bold ${ballStock.ticker.length > 4 ? 7 : 8}px sans-serif`;
-          c.textAlign = "center"; c.textBaseline = "middle"; c.fillText(ballStock.ticker, b.x, b.y + 1);
+          c.beginPath(); c.arc(0, 0, b.r - 4, 0, 6.29); c.stroke();
+          c.fillStyle = OUT; c.font = `900 ${ballStock.ticker.length > 4 ? 7 : 8}px Nunito, sans-serif`;
+          c.textAlign = "center"; c.textBaseline = "middle"; c.fillText(ballStock.ticker, 0, 1);
+          c.restore();
         } else {
-          const col = b.team === 0 ? BLUE : RED;
+          const [col, dark] = b.team === 0 ? [BLUE, BLUE_D] : [RED, RED_D];
           const active = phase.current === "aim" && turn.current === 0 && b.team === 0;
           if (active) {
             c.strokeStyle = `rgba(255,225,77,${0.5 + Math.sin(t * 0.15) * 0.4})`; c.lineWidth = 4;
             c.beginPath(); c.arc(b.x, b.y, b.r + 6, 0, 6.29); c.stroke();
           }
-          c.fillStyle = col; c.strokeStyle = OUT; c.lineWidth = 4;
+          c.fillStyle = dark; c.strokeStyle = OUT; c.lineWidth = 4;
+          c.beginPath(); c.arc(b.x, b.y + 3, b.r, 0, 6.29); c.fill(); c.stroke();
+          const dg = c.createRadialGradient(b.x - 6, b.y - 8, 2, b.x, b.y, b.r);
+          dg.addColorStop(0, "#ffffff"); dg.addColorStop(0.25, col); dg.addColorStop(1, dark);
+          c.fillStyle = dg;
           c.beginPath(); c.arc(b.x, b.y, b.r, 0, 6.29); c.fill(); c.stroke();
-          c.fillStyle = "rgba(255,255,255,0.35)"; c.beginPath(); c.arc(b.x - 7, b.y - 8, 8, 0, 6.29); c.fill();
-          c.fillStyle = "#fff"; c.font = "bold 16px 'Lilita One', sans-serif"; c.textAlign = "center"; c.textBaseline = "middle";
-          c.lineWidth = 3; c.strokeText(String((i % 5) + 1), b.x, b.y + 1); c.fillText(String((i % 5) + 1), b.x, b.y + 1);
+          c.strokeStyle = GOLD; c.lineWidth = 2.5; c.beginPath(); c.arc(b.x, b.y, b.r - 5, 0, 6.29); c.stroke();
+          c.fillStyle = "#fff"; c.font = "17px 'Lilita One', sans-serif"; c.textAlign = "center"; c.textBaseline = "middle";
+          c.strokeStyle = OUT; c.lineWidth = 3.5; c.strokeText(String((i % 5) + 1), b.x, b.y + 1); c.fillText(String((i % 5) + 1), b.x, b.y + 1);
         }
       }
+
+      // particles
+      for (const p of parts.current) {
+        c.save(); c.globalAlpha = Math.min(1, p.life / 30); c.translate(p.x, p.y); c.rotate(p.rot);
+        c.fillStyle = p.c; c.fillRect(-p.s / 2, -p.s / 4, p.s, p.s / 2); c.restore();
+      }
+
+      if (flash.current > 0) { c.fillStyle = `rgba(255,240,180,${flash.current * 0.35})`; c.fillRect(-20, -20, W + 40, H + 40); }
+      c.restore();
     };
 
     raf = requestAnimationFrame(loop);
@@ -211,16 +365,23 @@ export function Pitch({
     if (len < 12) return;
     const sp = (Math.min(len, MAX_PULL) / MAX_PULL) * MAX_SPEED;
     b.vx = (dx / len) * sp; b.vy = (dy / len) * sp;
+    sfxKick(sp / MAX_SPEED);
+    burst(b.x, b.y, 12, ["#e9f5d0", "#b9e08a"], 3, 3);
     lastKicker.current = 0;
     phase.current = "moving";
     cb.current.onKick();
   };
 
+  const toggleMute = () => { const m = !muted; setMuted(m); setMutedUi(m); };
+
   return (
     <div className="relative mx-auto w-full max-w-[min(100%,calc((100dvh-150px)*0.667))]">
       <div className="mb-2 flex items-center justify-between gap-2">
         <ScoreChip label={`YOU · ${player.ticker}`} value={score[0]} tone="blue" active={turnUi === 0} />
-        <span className="font-display text-stroke text-lg text-gold">FIRST TO {target}</span>
+        <button onClick={toggleMute} aria-label={muted ? "Unmute" : "Mute"}
+          className="chunky chunky-press grid size-10 place-items-center rounded-xl bg-primary text-lg">
+          {muted ? "🔇" : "🔊"}
+        </button>
         <ScoreChip label={`CPU · ${cpu.ticker}`} value={score[1]} tone="red" active={turnUi === 1} />
       </div>
       <canvas
@@ -234,7 +395,7 @@ export function Pitch({
         </div>
       )}
       <p className="mt-2 text-center text-sm font-bold text-muted-foreground">
-        {turnUi === 0 ? "Your turn — drag back from a blue player and release to kick" : "CPU is thinking…"}
+        {turnUi === 0 ? `Your turn — drag back from a blue player and release · First to ${target}` : "CPU is thinking…"}
       </p>
     </div>
   );
