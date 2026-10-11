@@ -5,6 +5,7 @@ import { parseEther } from "viem";
 import { PRIVY_APP_ID } from "@/lib/config";
 import { STOCKS, GAME_CREATOR, KICK_USD, type Stock } from "@/lib/stocks";
 import { Pitch } from "@/components/game/Pitch";
+import { unlock, startMusic } from "@/lib/audio";
 
 type Kick = { id: number; status: "pending" | "sent" | "failed"; hash?: string };
 type Wallet = { ready: boolean; authed: boolean; address?: string | undefined; email?: string | undefined; login: () => void; logout: () => unknown; pay: () => Promise<string> };
@@ -76,6 +77,7 @@ function Shell({ wallet }: { wallet: Wallet | null }) {
   }, [wallet]);
 
   const start = () => {
+    unlock(); startMusic();
     const others = STOCKS.filter((s) => s.ticker !== pick.ticker);
     setCpu(others[Math.floor(Math.random() * others.length)]!);
     setKicks([]);
