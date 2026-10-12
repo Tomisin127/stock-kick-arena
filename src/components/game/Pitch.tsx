@@ -415,18 +415,19 @@ export function Pitch({
     };
 
     raf = requestAnimationFrame(loop);
-    return () => { cancelAnimationFrame(raf); if (cpuTimer) clearTimeout(cpuTimer); };
+    return () => { cancelAnimationFrame(raf); if (cpuTimer) clearTimeout(cpuTimer); unlisten?.(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const toLocal = (e: React.PointerEvent) => {
     const r = canvas.current!.getBoundingClientRect();
-    return { x: ((e.clientX - r.left) / r.width) * W, y: ((e.clientY - r.top) / r.height) * H };
+    const x = ((e.clientX - r.left) / r.width) * W, y = ((e.clientY - r.top) / r.height) * H;
+    return flip ? { x: W - x, y: H - y } : { x, y };
   };
   const down = (e: React.PointerEvent) => {
-    if (phase.current !== "aim" || turn.current !== 0) return;
+    if (phase.current !== "aim" || turn.current !== myTeam) return;
     const p = toLocal(e);
-    const idx = bodies.current.findIndex((b) => b.team === 0 && Math.hypot(b.x - p.x, b.y - p.y) < b.r + 14);
+    const idx = bodies.current.findIndex((b) => b.team === myTeam && Math.hypot(b.x - p.x, b.y - p.y) < b.r + 14);
     if (idx < 0) return;
     (e.target as Element).setPointerCapture(e.pointerId);
     drag.current = { idx, px: p.x, py: p.y };
@@ -442,25 +443,34 @@ export function Pitch({
     const dx = b.x - d.px, dy = b.y - d.py, len = Math.hypot(dx, dy);
     if (len < 12) return;
     const sp = (Math.min(len, MAX_PULL) / MAX_PULL) * MAX_SPEED;
-    b.vx = (dx / len) * sp; b.vy = (dy / len) * sp;
+    const vx = (dx / len) * sp, vy = (dy / len) * sp;
     sfxKick(sp / MAX_SPEED);
     burst(b.x, b.y, 12, ["#e9f5d0", "#b9e08a"], 3, 3);
-    lastKicker.current = 0;
+    if (net?.role === "guest") {
+      net.send({ t: "kick", idx: d.idx, vx, vy });
+      lastKicker.current = 1;
+    } else {
+      b.vx = vx; b.vy = vy;
+      lastKicker.current = 0;
+      net?.send({ t: "fx", k: "kick", x: b.x, y: b.y, v: sp / MAX_SPEED });
+    }
     phase.current = "moving";
     cb.current.onKick();
   };
 
   const toggleMute = () => { const m = !muted; setMuted(m); setMutedUi(m); };
+  const mine = myTeam === 0 ? player : cpu, theirs = myTeam === 0 ? cpu : player;
+  const opp: 0 | 1 = myTeam === 0 ? 1 : 0;
 
   return (
     <div className="relative mx-auto w-full max-w-[min(100%,calc((100dvh-150px)*0.667))]">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <ScoreChip label={`YOU · ${player.ticker}`} value={score[0]} tone="blue" active={turnUi === 0} />
+        <ScoreChip label={`YOU · ${mine.ticker}`} value={score[myTeam]} tone={myTeam === 0 ? "blue" : "red"} active={turnUi === myTeam} />
         <button onClick={toggleMute} aria-label={muted ? "Unmute" : "Mute"}
           className="chunky chunky-press grid size-10 place-items-center rounded-xl bg-primary text-lg">
           {muted ? "🔇" : "🔊"}
         </button>
-        <ScoreChip label={`CPU · ${cpu.ticker}`} value={score[1]} tone="red" active={turnUi === 1} />
+        <ScoreChip label={`${oppName.slice(0, 10).toUpperCase()} · ${theirs.ticker}`} value={score[opp]} tone={myTeam === 0 ? "red" : "blue"} active={turnUi === opp} />
       </div>
       <canvas
         ref={canvas} width={W} height={H}
@@ -473,7 +483,7 @@ export function Pitch({
         </div>
       )}
       <p className="mt-2 text-center text-sm font-bold text-muted-foreground">
-        {turnUi === 0 ? `Your turn — drag back from a blue player and release · First to ${target}` : "CPU is thinking…"}
+        {turnUi === myTeam ? `Your turn — drag back from one of your players and release · First to ${target}` : `${oppName} is thinking…`}
       </p>
     </div>
   );
