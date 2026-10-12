@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { PrivyProvider, usePrivy, useWallets, useSendTransaction } from "@privy-io/react-auth";
+import { useServerFn } from "@tanstack/react-start";
 import { base } from "viem/chains";
 import { parseEther } from "viem";
 import { PRIVY_APP_ID } from "@/lib/config";
 import { STOCKS, GAME_CREATOR, KICK_USD, type Stock } from "@/lib/stocks";
 import { Pitch } from "@/components/game/Pitch";
 import { unlock, startMusic } from "@/lib/audio";
+import { ProfileGate } from "@/components/ProfileGate";
+import { reportMatch } from "@/lib/api.functions";
+import { useMatchmaking } from "@/lib/online";
+import type { Profile } from "@/lib/profile";
 
 type Kick = { id: number; status: "pending" | "sent" | "failed"; hash?: string };
 type Wallet = { ready: boolean; authed: boolean; address?: string | undefined; email?: string | undefined; login: () => void; logout: () => unknown; pay: () => Promise<string> };
@@ -59,15 +64,34 @@ function useEthPrice() {
 }
 
 function Shell({ wallet }: { wallet: Wallet | null }) {
-  const [screen, setScreen] = useState<"lobby" | "match" | "result">("lobby");
+  return (
+    <div className="px-3 pb-6">
+      <div className="mx-auto mb-3 flex max-w-xl justify-end"><WalletBadge wallet={wallet} /></div>
+      <ProfileGate>{(p) => <Game wallet={wallet} profile={p} />}</ProfileGate>
+    </div>
+  );
+}
+
+function Game({ wallet, profile }: { wallet: Wallet | null; profile: Profile }) {
+  const [screen, setScreen] = useState<"lobby" | "search" | "match" | "result">("lobby");
+  const [mode, setMode] = useState<"cpu" | "pvp">("cpu");
   const [pick, setPick] = useState<Stock>(STOCKS[0]!);
   const [stake, setStake] = useState(1);
   const [cpu, setCpu] = useState<Stock>(STOCKS[1]!);
   const [kicks, setKicks] = useState<Kick[]>([]);
-  const [final, setFinal] = useState<[number, number]>([0, 0]);
+  const [result, setResult] = useState<{ my: number; opp: number; points: number; forfeit?: boolean } | null>(null);
+  const [cpuMatchId, setCpuMatchId] = useState("");
   const kid = useRef(0);
+  const kickCount = useRef(0);
+  const report = useServerFn(reportMatch);
+
+  const me = useMemo(() => ({ id: profile.id, name: profile.name, ticker: pick.ticker }), [profile.id, profile.name, pick.ticker]);
+  const { match, queue, leave } = useMatchmaking(me, screen === "search");
+
+  useEffect(() => { if (match && screen === "search") { kickCount.current = 0; setKicks([]); setScreen("match"); } }, [match, screen]);
 
   const onKick = useCallback(() => {
+    kickCount.current += 1;
     if (!wallet?.authed) return;
     const id = ++kid.current;
     setKicks((k) => [{ id, status: "pending" as const }, ...k].slice(0, 30));
@@ -76,25 +100,51 @@ function Shell({ wallet }: { wallet: Wallet | null }) {
       .catch(() => setKicks((k) => k.map((x) => (x.id === id ? { ...x, status: "failed" } : x))));
   }, [wallet]);
 
+  const finish = async (my: number, opp: number, matchId: string, m: "cpu" | "pvp", forfeit = false) => {
+    setResult({ my, opp, points: 0, forfeit });
+    setScreen("result");
+    try {
+      const r = await report({ data: { id: profile.id, key: profile.key, matchId, mode: m, won: my > opp || forfeit, goals: Math.min(my, 5), kicks: Math.min(kickCount.current, 200) } });
+      setResult((x) => (x ? { ...x, points: r.points } : x));
+    } catch { /* ignore */ }
+  };
+
   const start = () => {
     unlock(); startMusic();
+    kickCount.current = 0; setKicks([]);
+    if (mode === "pvp") { setScreen("search"); return; }
     const others = STOCKS.filter((s) => s.ticker !== pick.ticker);
     setCpu(others[Math.floor(Math.random() * others.length)]!);
-    setKicks([]);
+    setCpuMatchId(`cpu:${profile.id}:${Date.now()}`);
     setScreen("match");
   };
 
-  return (
-    <div className="min-h-dvh px-3 pb-6 pt-3">
-      <header className="mx-auto mb-3 flex max-w-xl items-center justify-between gap-2">
-        <h1 className="font-display text-stroke text-2xl leading-none text-gold">STOCK<span className="text-foreground">BALL</span></h1>
-        <WalletBadge wallet={wallet} />
-      </header>
+  // forfeit if opponent leaves mid-match
+  useEffect(() => {
+    if (screen === "match" && match?.oppLeft) { void finish(1, 0, match.matchId, "pvp", true); leave(); }
+  }, [match?.oppLeft, screen]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const stockOf = (t: string) => STOCKS.find((s) => s.ticker === t) ?? STOCKS[0]!;
+
+  return (
+    <>
       {screen === "lobby" && (
         <main className="mx-auto max-w-xl space-y-4">
           <Panel>
-            <h2 className="font-display text-stroke text-xl">1. Pick your stock ball</h2>
+            <h2 className="font-display text-stroke text-xl">1. Choose a mode</h2>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              {([["cpu", "🤖", "VS CPU", "Practice & earn"], ["pvp", "⚔️", "ONLINE PVP", "Double points"]] as const).map(([m, icon, label, sub]) => (
+                <button key={m} onClick={() => setMode(m)}
+                  className={`chunky chunky-press rounded-2xl p-3 text-center ${mode === m ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>
+                  <div className="text-3xl">{icon}</div>
+                  <div className="font-display text-xl">{label}</div>
+                  <div className="text-xs font-bold opacity-80">{sub}</div>
+                </button>
+              ))}
+            </div>
+          </Panel>
+          <Panel>
+            <h2 className="font-display text-stroke text-xl">2. Pick your stock ball</h2>
             <p className="text-sm text-muted-foreground">Coinbase Tokenized Stocks on Base</p>
             <div className="mt-3 grid grid-cols-4 gap-2">
               {STOCKS.map((s) => (
@@ -107,7 +157,7 @@ function Shell({ wallet }: { wallet: Wallet | null }) {
             </div>
           </Panel>
           <Panel>
-            <h2 className="font-display text-stroke text-xl">2. Lock your stake</h2>
+            <h2 className="font-display text-stroke text-xl">3. Lock your stake</h2>
             <div className="mt-2 flex items-center gap-3">
               {[0.5, 1, 2, 5].map((n) => (
                 <button key={n} onClick={() => setStake(n)}
@@ -117,46 +167,68 @@ function Shell({ wallet }: { wallet: Wallet | null }) {
             <p className="mt-2 text-sm text-muted-foreground">
               {stake} {pick.ticker} ≈ ${(stake * pick.price).toFixed(2)} · Practice lock (no funds held yet)
             </p>
-          </Panel>
-          <Panel>
-            <h2 className="font-display text-stroke text-xl">3. Kick off vs CPU</h2>
-            <p className="text-sm text-muted-foreground">
-              Every kick sends ${KICK_USD} in ETH on Base to the game creator. Keep a little ETH in your wallet for network fees.
-            </p>
+            <p className="mt-2 text-xs text-muted-foreground">Every kick sends ${KICK_USD} in ETH on Base to the game creator.</p>
             {wallet && !wallet.authed ? (
               <button onClick={wallet.login} disabled={!wallet.ready}
                 className="chunky chunky-press mt-3 w-full rounded-2xl bg-team-blue py-3 font-display text-stroke text-2xl">SIGN IN WITH EMAIL</button>
             ) : (
               <button onClick={start} className="chunky chunky-press mt-3 w-full rounded-2xl bg-accent py-3 font-display text-stroke text-2xl text-foreground">
-                LOCK IN & PLAY
+                {mode === "pvp" ? "FIND OPPONENT" : "LOCK IN & PLAY"}
               </button>
             )}
-            {!wallet && <p className="mt-2 text-xs text-muted-foreground">Sign-in is not set up yet. Practice mode, no payments.</p>}
           </Panel>
         </main>
       )}
 
-      {screen === "match" && (
+      {screen === "search" && (
+        <main className="mx-auto max-w-md pt-10 text-center">
+          <Panel>
+            <div className="mx-auto size-16 animate-spin rounded-full border-8 border-muted border-t-primary" />
+            <p className="mt-4 font-display text-stroke text-3xl text-gold">FINDING OPPONENT…</p>
+            <p className="mt-2 text-sm text-muted-foreground">{queue <= 1 ? "Waiting for another player to join" : `${queue} players in queue`}</p>
+            <button onClick={() => setScreen("lobby")} className="chunky chunky-press mt-5 w-full rounded-2xl bg-secondary py-3 font-display text-xl">CANCEL</button>
+          </Panel>
+        </main>
+      )}
+
+      {screen === "match" && mode === "cpu" && (
         <main className="mx-auto max-w-xl">
-          <Pitch player={pick} cpu={cpu} onKick={onKick} onEnd={(s) => { setFinal(s); setScreen("result"); }} />
+          <Pitch player={pick} cpu={cpu} onKick={onKick} onEnd={(s) => void finish(s[0], s[1], cpuMatchId, "cpu")} />
           <KickFeed kicks={kicks} />
         </main>
       )}
 
-      {screen === "result" && (
+      {screen === "match" && mode === "pvp" && match && (
+        <main className="mx-auto max-w-xl">
+          <Pitch
+            key={match.matchId}
+            player={match.role === "host" ? pick : stockOf(match.opp.ticker)}
+            cpu={match.role === "host" ? stockOf(match.opp.ticker) : pick}
+            net={match.net} oppName={match.opp.name} onKick={onKick}
+            onEnd={(s) => {
+              const my = match.role === "host" ? s[0] : s[1], opp = match.role === "host" ? s[1] : s[0];
+              void finish(my, opp, match.matchId, "pvp"); leave();
+            }}
+          />
+          <KickFeed kicks={kicks} />
+        </main>
+      )}
+
+      {screen === "result" && result && (
         <main className="mx-auto max-w-md pt-10 text-center">
           <Panel>
-            <p className="animate-pop font-display text-stroke text-5xl text-gold">{final[0] > final[1] ? "VICTORY!" : "DEFEAT"}</p>
-            <p className="mt-2 font-display text-3xl">{final[0]} – {final[1]}</p>
+            <p className="animate-pop font-display text-stroke text-5xl text-gold">{result.my > result.opp || result.forfeit ? "VICTORY!" : "DEFEAT"}</p>
+            <p className="mt-2 font-display text-3xl">{result.forfeit ? "Opponent left" : `${result.my} – ${result.opp}`}</p>
+            <p className="chunky mx-auto mt-4 inline-block rounded-xl bg-primary px-4 py-2 font-display text-2xl text-primary-foreground">+{result.points} RANK PTS</p>
             <p className="mt-3 text-sm text-muted-foreground">
-              {final[0] > final[1] ? `You win ${stake} ${pick.ticker} back + the CPU's ${cpu.ticker} stake` : `CPU takes your ${stake} ${pick.ticker} stake`} (practice)
+              {result.my > result.opp || result.forfeit ? `You keep your ${stake} ${pick.ticker} and win your opponent's stake` : `Opponent takes your ${stake} ${pick.ticker} stake`} (practice)
             </p>
             <p className="mt-1 text-xs text-muted-foreground">{kicks.filter((k) => k.status === "sent").length} kicks paid onchain</p>
-            <button onClick={() => setScreen("lobby")} className="chunky chunky-press mt-5 w-full rounded-2xl bg-primary py-3 font-display text-2xl text-primary-foreground">PLAY AGAIN</button>
+            <button onClick={() => setScreen("lobby")} className="chunky chunky-press mt-5 w-full rounded-2xl bg-accent py-3 font-display text-stroke text-2xl">PLAY AGAIN</button>
           </Panel>
         </main>
       )}
-    </div>
+    </>
   );
 }
 
@@ -165,7 +237,7 @@ function Panel({ children }: { children: ReactNode }) {
 }
 
 function WalletBadge({ wallet }: { wallet: Wallet | null }) {
-  if (!wallet) return <span className="chunky rounded-xl bg-muted px-3 py-1 text-xs font-bold">Practice mode</span>;
+  if (!wallet) return <span className="chunky rounded-xl bg-muted px-3 py-1 text-xs font-bold">Practice mode · no payments</span>;
   if (!wallet.authed) return null;
   const a = wallet.address;
   return (
