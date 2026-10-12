@@ -230,6 +230,7 @@ export function Pitch({
 
     const draw = (c: CanvasRenderingContext2D, t: number) => {
       c.save();
+      if (flip) { c.translate(W, H); c.rotate(Math.PI); }
       if (shake.current > 0.5) c.translate((Math.random() - 0.5) * shake.current, (Math.random() - 0.5) * shake.current);
 
       // stadium base + tiered stands
@@ -379,7 +380,7 @@ export function Pitch({
           bg2.addColorStop(0, "#ffffff"); bg2.addColorStop(1, "#cfd6e6");
           c.fillStyle = bg2; c.strokeStyle = OUT; c.lineWidth = 3;
           c.beginPath(); c.arc(b.x, b.y, b.r, 0, 6.29); c.fill(); c.stroke();
-          c.save(); c.translate(b.x, b.y); c.rotate(ballSpin.current);
+          c.save(); c.translate(b.x, b.y); c.rotate(ballSpin.current + (flip ? Math.PI : 0));
           c.strokeStyle = ballStock.color; c.lineWidth = 4;
           c.beginPath(); c.arc(0, 0, b.r - 4, 0, 6.29); c.stroke();
           c.fillStyle = OUT; c.font = `900 ${ballStock.ticker.length > 4 ? 7 : 8}px Nunito, sans-serif`;
@@ -387,7 +388,7 @@ export function Pitch({
           c.restore();
         } else {
           const [col, dark] = b.team === 0 ? [BLUE, BLUE_D] : [RED, RED_D];
-          const active = phase.current === "aim" && turn.current === 0 && b.team === 0;
+          const active = phase.current === "aim" && turn.current === myTeam && b.team === myTeam;
           if (active) {
             c.strokeStyle = `rgba(255,225,77,${0.5 + Math.sin(t * 0.15) * 0.4})`; c.lineWidth = 4;
             c.beginPath(); c.arc(b.x, b.y, b.r + 6, 0, 6.29); c.stroke();
@@ -400,7 +401,9 @@ export function Pitch({
           c.beginPath(); c.arc(b.x, b.y, b.r, 0, 6.29); c.fill(); c.stroke();
           c.strokeStyle = GOLD; c.lineWidth = 2.5; c.beginPath(); c.arc(b.x, b.y, b.r - 5, 0, 6.29); c.stroke();
           c.fillStyle = "#fff"; c.font = "17px 'Lilita One', sans-serif"; c.textAlign = "center"; c.textBaseline = "middle";
-          c.strokeStyle = OUT; c.lineWidth = 3.5; c.strokeText(String((i % 5) + 1), b.x, b.y + 1); c.fillText(String((i % 5) + 1), b.x, b.y + 1);
+          c.strokeStyle = OUT; c.lineWidth = 3.5;
+          c.save(); c.translate(b.x, b.y + 1); if (flip) c.rotate(Math.PI);
+          c.strokeText(String((i % 5) + 1), 0, 0); c.fillText(String((i % 5) + 1), 0, 0); c.restore();
         }
       }
 
@@ -415,18 +418,19 @@ export function Pitch({
     };
 
     raf = requestAnimationFrame(loop);
-    return () => { cancelAnimationFrame(raf); if (cpuTimer) clearTimeout(cpuTimer); };
+    return () => { cancelAnimationFrame(raf); if (cpuTimer) clearTimeout(cpuTimer); unlisten?.(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const toLocal = (e: React.PointerEvent) => {
     const r = canvas.current!.getBoundingClientRect();
-    return { x: ((e.clientX - r.left) / r.width) * W, y: ((e.clientY - r.top) / r.height) * H };
+    const x = ((e.clientX - r.left) / r.width) * W, y = ((e.clientY - r.top) / r.height) * H;
+    return flip ? { x: W - x, y: H - y } : { x, y };
   };
   const down = (e: React.PointerEvent) => {
-    if (phase.current !== "aim" || turn.current !== 0) return;
+    if (phase.current !== "aim" || turn.current !== myTeam) return;
     const p = toLocal(e);
-    const idx = bodies.current.findIndex((b) => b.team === 0 && Math.hypot(b.x - p.x, b.y - p.y) < b.r + 14);
+    const idx = bodies.current.findIndex((b) => b.team === myTeam && Math.hypot(b.x - p.x, b.y - p.y) < b.r + 14);
     if (idx < 0) return;
     (e.target as Element).setPointerCapture(e.pointerId);
     drag.current = { idx, px: p.x, py: p.y };
@@ -442,25 +446,34 @@ export function Pitch({
     const dx = b.x - d.px, dy = b.y - d.py, len = Math.hypot(dx, dy);
     if (len < 12) return;
     const sp = (Math.min(len, MAX_PULL) / MAX_PULL) * MAX_SPEED;
-    b.vx = (dx / len) * sp; b.vy = (dy / len) * sp;
+    const vx = (dx / len) * sp, vy = (dy / len) * sp;
     sfxKick(sp / MAX_SPEED);
     burst(b.x, b.y, 12, ["#e9f5d0", "#b9e08a"], 3, 3);
-    lastKicker.current = 0;
+    if (net?.role === "guest") {
+      net.send({ t: "kick", idx: d.idx, vx, vy });
+      lastKicker.current = 1;
+    } else {
+      b.vx = vx; b.vy = vy;
+      lastKicker.current = 0;
+      net?.send({ t: "fx", k: "kick", x: b.x, y: b.y, v: sp / MAX_SPEED });
+    }
     phase.current = "moving";
     cb.current.onKick();
   };
 
   const toggleMute = () => { const m = !muted; setMuted(m); setMutedUi(m); };
+  const mine = myTeam === 0 ? player : cpu, theirs = myTeam === 0 ? cpu : player;
+  const opp: 0 | 1 = myTeam === 0 ? 1 : 0;
 
   return (
     <div className="relative mx-auto w-full max-w-[min(100%,calc((100dvh-150px)*0.667))]">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <ScoreChip label={`YOU · ${player.ticker}`} value={score[0]} tone="blue" active={turnUi === 0} />
+        <ScoreChip label={`YOU · ${mine.ticker}`} value={score[myTeam]} tone={myTeam === 0 ? "blue" : "red"} active={turnUi === myTeam} />
         <button onClick={toggleMute} aria-label={muted ? "Unmute" : "Mute"}
           className="chunky chunky-press grid size-10 place-items-center rounded-xl bg-primary text-lg">
           {muted ? "🔇" : "🔊"}
         </button>
-        <ScoreChip label={`CPU · ${cpu.ticker}`} value={score[1]} tone="red" active={turnUi === 1} />
+        <ScoreChip label={`${oppName.slice(0, 10).toUpperCase()} · ${theirs.ticker}`} value={score[opp]} tone={myTeam === 0 ? "red" : "blue"} active={turnUi === opp} />
       </div>
       <canvas
         ref={canvas} width={W} height={H}
@@ -473,7 +486,7 @@ export function Pitch({
         </div>
       )}
       <p className="mt-2 text-center text-sm font-bold text-muted-foreground">
-        {turnUi === 0 ? `Your turn — drag back from a blue player and release · First to ${target}` : "CPU is thinking…"}
+        {turnUi === myTeam ? `Your turn — drag back from one of your players and release · First to ${target}` : `${oppName} is thinking…`}
       </p>
     </div>
   );
