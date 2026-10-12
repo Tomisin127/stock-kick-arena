@@ -230,6 +230,7 @@ export function Pitch({
 
     const draw = (c: CanvasRenderingContext2D, t: number) => {
       c.save();
+      if (flip) { c.translate(W, H); c.rotate(Math.PI); }
       if (shake.current > 0.5) c.translate((Math.random() - 0.5) * shake.current, (Math.random() - 0.5) * shake.current);
 
       // stadium base + tiered stands
@@ -379,7 +380,7 @@ export function Pitch({
           bg2.addColorStop(0, "#ffffff"); bg2.addColorStop(1, "#cfd6e6");
           c.fillStyle = bg2; c.strokeStyle = OUT; c.lineWidth = 3;
           c.beginPath(); c.arc(b.x, b.y, b.r, 0, 6.29); c.fill(); c.stroke();
-          c.save(); c.translate(b.x, b.y); c.rotate(ballSpin.current);
+          c.save(); c.translate(b.x, b.y); c.rotate(ballSpin.current + (flip ? Math.PI : 0));
           c.strokeStyle = ballStock.color; c.lineWidth = 4;
           c.beginPath(); c.arc(0, 0, b.r - 4, 0, 6.29); c.stroke();
           c.fillStyle = OUT; c.font = `900 ${ballStock.ticker.length > 4 ? 7 : 8}px Nunito, sans-serif`;
@@ -387,7 +388,7 @@ export function Pitch({
           c.restore();
         } else {
           const [col, dark] = b.team === 0 ? [BLUE, BLUE_D] : [RED, RED_D];
-          const active = phase.current === "aim" && turn.current === 0 && b.team === 0;
+          const active = phase.current === "aim" && turn.current === myTeam && b.team === myTeam;
           if (active) {
             c.strokeStyle = `rgba(255,225,77,${0.5 + Math.sin(t * 0.15) * 0.4})`; c.lineWidth = 4;
             c.beginPath(); c.arc(b.x, b.y, b.r + 6, 0, 6.29); c.stroke();
@@ -400,7 +401,9 @@ export function Pitch({
           c.beginPath(); c.arc(b.x, b.y, b.r, 0, 6.29); c.fill(); c.stroke();
           c.strokeStyle = GOLD; c.lineWidth = 2.5; c.beginPath(); c.arc(b.x, b.y, b.r - 5, 0, 6.29); c.stroke();
           c.fillStyle = "#fff"; c.font = "17px 'Lilita One', sans-serif"; c.textAlign = "center"; c.textBaseline = "middle";
-          c.strokeStyle = OUT; c.lineWidth = 3.5; c.strokeText(String((i % 5) + 1), b.x, b.y + 1); c.fillText(String((i % 5) + 1), b.x, b.y + 1);
+          c.strokeStyle = OUT; c.lineWidth = 3.5;
+          c.save(); c.translate(b.x, b.y + 1); if (flip) c.rotate(Math.PI);
+          c.strokeText(String((i % 5) + 1), 0, 0); c.fillText(String((i % 5) + 1), 0, 0); c.restore();
         }
       }
 
