@@ -23,7 +23,7 @@ export function useMatchmaking(me: Me | null, searching: boolean) {
       if (done) return;
       const state = lobby.presenceState<{ id: string; name: string; ticker: string; ts: number }>();
       const list = Object.values(state).map((v) => v[0]!).filter(Boolean).sort((a, b) => a.ts - b.ts || a.id.localeCompare(b.id));
-      setQueue(list.length);
+      setQueue(list.length); console.log("rt sync", JSON.stringify(list));
       if (list.length < 2) return;
       const [a, b] = list as [typeof list[0], typeof list[0]];
       if (a.id !== me.id && b.id !== me.id) return;
@@ -33,7 +33,7 @@ export function useMatchmaking(me: Me | null, searching: boolean) {
       const matchId = `${a.id}:${b.id}:${a.ts}`;
       openMatch(matchId, role, { id: opp.id, name: opp.name, ticker: opp.ticker });
     });
-    lobby.subscribe((s) => { if (s === "SUBSCRIBED") void lobby.track({ ...me, ts }); });
+    lobby.subscribe((s, e) => { console.log("rt lobby", s, e?.message); if (s === "SUBSCRIBED") void lobby.track({ ...me, ts }); });
 
     const openMatch = (matchId: string, role: "host" | "guest", opp: Opp) => {
       const ch = supabase.channel(`stockball-match-${matchId}`, { config: { broadcast: { self: false }, presence: { key: me.id } } });
