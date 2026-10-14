@@ -31,7 +31,6 @@ export function useMatchmaking(me: Me | null, searching: boolean) {
       const role = a.id === me.id ? "host" : "guest";
       const opp = role === "host" ? b : a;
       const matchId = `${a.id}:${b.id}:${a.ts}`;
-      void lobby.untrack();
       openMatch(matchId, role, { id: opp.id, name: opp.name, ticker: opp.ticker });
     });
     lobby.subscribe((s) => { if (s === "SUBSCRIBED") void lobby.track({ ...me, ts }); });
@@ -46,6 +45,7 @@ export function useMatchmaking(me: Me | null, searching: boolean) {
         if (here.includes(opp.id)) {
           if (!seen) {
             seen = true;
+            void supabase.removeChannel(lobby);
             const net: Net = {
               role,
               send: (m) => void ch.send({ type: "broadcast", event: "m", payload: m }),
@@ -59,7 +59,6 @@ export function useMatchmaking(me: Me | null, searching: boolean) {
       });
       ch.subscribe((s) => { if (s === "SUBSCRIBED") void ch.track({ id: me.id }); });
       matchCh.current = ch;
-      void supabase.removeChannel(lobby);
     };
 
     return () => { void supabase.removeChannel(lobby); };
