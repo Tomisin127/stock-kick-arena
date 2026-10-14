@@ -118,6 +118,16 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+      <header className="mx-auto flex max-w-xl items-center justify-between gap-2 px-3 py-3">
+        <Link to="/" className="font-display text-stroke text-2xl leading-none text-gold">STOCK<span className="text-foreground">BALL</span></Link>
+        <nav className="flex gap-1.5">
+          {([["/", "⚽ Play"], ["/lend", "🏦 Lend"], ["/leaderboard", "🏆 Ranks"]] as const).map(([to, label]) => (
+            <Link key={to} to={to} activeOptions={{ exact: true }}
+              className="chunky chunky-press rounded-xl bg-secondary px-2.5 py-1 text-xs font-black"
+              activeProps={{ className: "bg-primary text-primary-foreground" }}>{label}</Link>
+          ))}
+        </nav>
+      </header>
       <Outlet />
     </QueryClientProvider>
   );
