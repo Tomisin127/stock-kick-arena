@@ -13,4 +13,4 @@ export const STOCKS: Stock[] = [
 ];
 
 export const GAME_CREATOR = "0x72110c7117Ee3D0BC77D4682107EA04b02312ED6" as const;
-export const KICK_USD = 0.000001;
+export const KICK_USD = 0.001;

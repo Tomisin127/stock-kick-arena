@@ -1,7 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { STOCKS } from "@/lib/stocks";
-import { PROTOCOLS } from "@/lib/ranks";
+import { B20_TOKENS } from "@/lib/b20";
 
 async function sha(s: string) {
   const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
@@ -72,15 +71,18 @@ export const reportMatch = createServerFn({ method: "POST" })
 
 export const lend = createServerFn({ method: "POST" })
   .inputValidator((d) => Cred.extend({
-    protocol: z.string(), ticker: z.string(), amount: z.number().positive().max(1000),
+    protocol: z.string().min(2).max(40), ticker: z.string().max(12), amount: z.number().positive().max(100000),
   }).parse(d))
   .handler(async ({ data }) => {
-    const stock = STOCKS.find((s) => s.ticker === data.ticker);
-    if (!stock || !PROTOCOLS.some((p) => p.id === data.protocol)) throw new Error("Invalid choice");
+    const token = B20_TOKENS.find((t) => t.ticker === data.ticker);
+    if (!token) throw new Error("Invalid stock");
     const { db } = await verify(data.id, data.key);
+    const r = await fetch(`https://coins.llama.fi/prices/current/base:${token.address}`).then((x) => x.json()).catch(() => null);
+    const price = Number(r?.coins?.[`base:${token.address}`]?.price) || 0;
+    if (!price) throw new Error("Price unavailable, try again");
     await db.from("lend_positions").insert({
       player_id: data.id, protocol: data.protocol, ticker: data.ticker,
-      amount: data.amount, usd_value: data.amount * stock.price,
+      amount: data.amount, usd_value: data.amount * price,
     });
     return { ok: true };
   });
