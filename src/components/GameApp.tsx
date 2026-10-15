@@ -10,6 +10,7 @@ import { unlock, startMusic } from "@/lib/audio";
 import { ProfileGate } from "@/components/ProfileGate";
 import { reportMatch } from "@/lib/api.functions";
 import { useMatchmaking } from "@/lib/online";
+import { useWalletStocks, baseClient } from "@/lib/wallet-stocks";
 import type { Profile } from "@/lib/profile";
 
 type Kick = { id: number; status: "pending" | "sent" | "failed"; hash?: string };
@@ -21,8 +22,8 @@ export default function GameApp() {
     <PrivyProvider
       appId={PRIVY_APP_ID}
       config={{
-        loginMethods: ["email"],
-        appearance: { theme: "dark", accentColor: "#f5c542" },
+        loginMethods: ["email", "google"],
+        appearance: { theme: "dark", accentColor: "#f5c542", landingHeader: "Sign in to StockBall" },
         embeddedWallets: { ethereum: { createOnLogin: "users-without-wallets" }, showWalletUIs: false },
         defaultChain: base as any,
         supportedChains: [base as any],
@@ -40,12 +41,16 @@ function PrivyBridge() {
   const embedded = wallets.find((w) => w.walletClientType === "privy");
   const ethPrice = useEthPrice();
   const wallet: Wallet = {
-    ready, authed: authenticated, address: embedded?.address, email: user?.email?.address, login, logout,
+    ready, authed: authenticated, address: embedded?.address,
+    email: user?.email?.address ?? user?.google?.email, login, logout,
     pay: async () => {
       if (!embedded) throw new Error("No wallet");
-      const eth = (KICK_USD / ethPrice.current).toFixed(18);
+      const value = parseEther((KICK_USD / ethPrice.current).toFixed(18));
+      const bal = await baseClient.getBalance({ address: embedded.address as `0x${string}` });
+      if (bal <= value) throw new Error("Not enough ETH");
+      await embedded.switchChain(base.id).catch(() => {});
       const { hash } = await sendTransaction(
-        { to: GAME_CREATOR, value: parseEther(eth), chainId: base.id },
+        { to: GAME_CREATOR, value, chainId: base.id },
         { address: embedded.address, uiOptions: { showWalletUIs: false } },
       );
       return hash;
@@ -75,8 +80,15 @@ function Shell({ wallet }: { wallet: Wallet | null }) {
 function Game({ wallet, profile }: { wallet: Wallet | null; profile: Profile }) {
   const [screen, setScreen] = useState<"lobby" | "search" | "match" | "result">("lobby");
   const [mode, setMode] = useState<"cpu" | "pvp">("cpu");
-  const [pick, setPick] = useState<Stock>(STOCKS[0]!);
+  const assets = useWalletStocks(wallet?.authed ? wallet.address : undefined);
+  const holdings = assets.data?.holdings ?? [];
+  const balls: Stock[] = holdings.length ? holdings : STOCKS;
+  const [pickRaw, setPick] = useState<Stock | null>(null);
+  const ball = balls.find((b) => b.ticker === pickRaw?.ticker) ?? balls[0]!;
+  const pick = ball;
+  const held = holdings.find((h) => h.ticker === ball.ticker);
   const [stake, setStake] = useState(1);
+  const overStake = !!held && stake > held.balance;
   const [cpu, setCpu] = useState<Stock>(STOCKS[1]!);
   const [kicks, setKicks] = useState<Kick[]>([]);
   const [result, setResult] = useState<{ my: number; opp: number; points: number; forfeit?: boolean } | null>(null);
