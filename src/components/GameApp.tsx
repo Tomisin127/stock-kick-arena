@@ -143,36 +143,58 @@ function Game({ wallet, profile }: { wallet: Wallet | null; profile: Profile }) 
               ))}
             </div>
           </Panel>
+          {wallet?.authed && (
+            <Panel>
+              <div className="flex items-center justify-between">
+                <h2 className="font-display text-stroke text-xl">💼 Your assets</h2>
+                <button onClick={() => void assets.refetch()} className="text-xs font-bold text-muted-foreground underline">refresh</button>
+              </div>
+              {assets.isLoading ? <p className="mt-2 text-sm text-muted-foreground">Reading your wallet on Base…</p> : (
+                <div className="mt-2 space-y-1 text-sm">
+                  <div className="flex justify-between rounded-lg bg-muted px-3 py-1.5 font-bold"><span>ETH</span><span>{(assets.data?.eth ?? 0).toFixed(6)}</span></div>
+                  {holdings.map((h) => (
+                    <div key={h.ticker} className="flex justify-between rounded-lg bg-muted px-3 py-1.5 font-bold">
+                      <span>{h.ticker} <span className="font-normal text-muted-foreground">{h.name}</span></span>
+                      <span>{h.balance.toLocaleString(undefined, { maximumFractionDigits: 4 })} · ${h.usd.toFixed(2)}</span>
+                    </div>
+                  ))}
+                  {!holdings.length && <p className="text-muted-foreground">No tokenized stocks in this wallet yet. Send some to the address above to use them as your ball.</p>}
+                  {(assets.data?.eth ?? 0) === 0 && <p className="text-destructive">Add a little ETH on Base so your kicks can be paid.</p>}
+                </div>
+              )}
+            </Panel>
+          )}
           <Panel>
             <h2 className="font-display text-stroke text-xl">2. Pick your stock ball</h2>
-            <p className="text-sm text-muted-foreground">Coinbase Tokenized Stocks on Base</p>
+            <p className="text-sm text-muted-foreground">{holdings.length ? "Tokenized stocks in your wallet" : "Practice balls — hold tokenized stocks to play with your own"}</p>
             <div className="mt-3 grid grid-cols-4 gap-2">
-              {STOCKS.map((s) => (
+              {balls.map((s) => (
                 <button key={s.ticker} onClick={() => setPick(s)}
-                  className={`chunky chunky-press flex flex-col items-center rounded-xl p-2 ${pick.ticker === s.ticker ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>
-                  <span className="chunky grid size-10 place-items-center rounded-full bg-foreground text-[10px] font-black text-outline" style={{ boxShadow: `inset 0 0 0 4px ${s.color}` }}>{s.ticker}</span>
+                  className={`chunky chunky-press flex flex-col items-center rounded-xl p-2 ${ball.ticker === s.ticker ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>
+                  <span className="chunky grid size-10 place-items-center rounded-full bg-foreground text-[9px] font-black text-outline" style={{ boxShadow: `inset 0 0 0 4px ${s.color}` }}>{s.ticker}</span>
                   <span className="mt-1 text-[11px] font-bold">${s.price.toFixed(0)}</span>
                 </button>
               ))}
             </div>
           </Panel>
           <Panel>
-            <h2 className="font-display text-stroke text-xl">3. Lock your stake</h2>
-            <div className="mt-2 flex items-center gap-3">
-              {[0.5, 1, 2, 5].map((n) => (
-                <button key={n} onClick={() => setStake(n)}
-                  className={`chunky chunky-press flex-1 rounded-xl py-2 font-display text-lg ${stake === n ? "bg-primary text-primary-foreground" : "bg-secondary"}`}>{n}</button>
-              ))}
+            <h2 className="font-display text-stroke text-xl">3. Set your stake</h2>
+            <div className="mt-2 flex items-center gap-2">
+              <input type="number" min={0} step="any" value={stake} max={held?.balance}
+                onChange={(e) => setStake(Math.max(0, Number(e.target.value) || 0))}
+                className="chunky w-full rounded-xl bg-secondary px-3 py-2 font-display text-lg outline-none" />
+              {held && <button onClick={() => setStake(held.balance)} className="chunky chunky-press rounded-xl bg-secondary px-3 py-2 font-display">MAX</button>}
             </div>
             <p className="mt-2 text-sm text-muted-foreground">
-              {stake} {pick.ticker} ≈ ${(stake * pick.price).toFixed(2)} · Practice lock (no funds held yet)
+              {stake} {ball.ticker} ≈ ${(stake * ball.price).toFixed(2)}{held ? ` · you hold ${held.balance}` : " · practice"}
             </p>
+            {overStake && <p className="mt-1 text-sm text-destructive">That's more than you hold.</p>}
             <p className="mt-2 text-xs text-muted-foreground">Every kick sends ${KICK_USD} in ETH on Base to the game creator.</p>
             {wallet && !wallet.authed ? (
               <button onClick={wallet.login} disabled={!wallet.ready}
                 className="chunky chunky-press mt-3 w-full rounded-2xl bg-team-blue py-3 font-display text-stroke text-2xl">SIGN IN WITH EMAIL</button>
             ) : (
-              <button onClick={start} className="chunky chunky-press mt-3 w-full rounded-2xl bg-accent py-3 font-display text-stroke text-2xl text-foreground">
+              <button onClick={start} disabled={overStake} className="chunky chunky-press mt-3 w-full rounded-2xl bg-accent py-3 font-display text-stroke text-2xl text-foreground disabled:opacity-50">
                 {mode === "pvp" ? "FIND OPPONENT" : "LOCK IN & PLAY"}
               </button>
             )}
