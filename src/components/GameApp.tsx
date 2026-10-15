@@ -14,10 +14,11 @@ import { useWalletStocks, baseClient } from "@/lib/wallet-stocks";
 import type { Profile } from "@/lib/profile";
 
 type Kick = { id: number; status: "pending" | "sent" | "failed"; hash?: string };
-type Wallet = { ready: boolean; authed: boolean; address?: string | undefined; email?: string | undefined; login: () => void; logout: () => unknown; pay: () => Promise<string> };
+export type Wallet = { ready: boolean; authed: boolean; address?: string | undefined; email?: string | undefined; login: () => void; logout: () => unknown; pay: () => Promise<string> };
 
-export default function GameApp() {
-  if (!PRIVY_APP_ID) return <Shell wallet={null} />;
+type View = (w: Wallet | null, p: Profile) => ReactNode;
+export default function GameApp({ view }: { view?: View }) {
+  if (!PRIVY_APP_ID) return <Shell wallet={null} view={view} />;
   return (
     <PrivyProvider
       appId={PRIVY_APP_ID}
@@ -29,12 +30,12 @@ export default function GameApp() {
         supportedChains: [base as any],
       }}
     >
-      <PrivyBridge />
+      <PrivyBridge view={view} />
     </PrivyProvider>
   );
 }
 
-function PrivyBridge() {
+function PrivyBridge({ view }: { view?: View | undefined }) {
   const { ready, authenticated, login, logout, user } = usePrivy();
   const { wallets } = useWallets();
   const { sendTransaction } = useSendTransaction();
@@ -56,7 +57,7 @@ function PrivyBridge() {
       return hash;
     },
   };
-  return <Shell wallet={wallet} />;
+  return <Shell wallet={wallet} view={view} />;
 }
 
 function useEthPrice() {
@@ -68,11 +69,11 @@ function useEthPrice() {
   return p;
 }
 
-function Shell({ wallet }: { wallet: Wallet | null }) {
+function Shell({ wallet, view }: { wallet: Wallet | null; view?: View | undefined }) {
   return (
     <div className="px-3 pb-6">
       <div className="mx-auto mb-3 flex max-w-xl justify-end"><WalletBadge wallet={wallet} /></div>
-      <ProfileGate>{(p) => <Game wallet={wallet} profile={p} />}</ProfileGate>
+      <ProfileGate>{(p) => (view ? view(wallet, p) : <Game wallet={wallet} profile={p} />)}</ProfileGate>
     </div>
   );
 }
