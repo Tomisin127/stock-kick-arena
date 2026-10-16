@@ -286,7 +286,7 @@ function Game({ wallet, profile }: { wallet: Wallet | null; profile: Profile }) 
             <p className="mt-2 font-display text-3xl">{result.forfeit ? "Opponent left" : `${result.my} – ${result.opp}`}</p>
             <p className="chunky mx-auto mt-4 inline-block rounded-xl bg-primary px-4 py-2 font-display text-2xl text-primary-foreground">+{result.points} RANK PTS</p>
             <p className="mt-3 text-sm text-muted-foreground">
-              {result.my > result.opp || result.forfeit ? `You keep your ${stake} ${pick.ticker} and win your opponent's stake` : `Opponent takes your ${stake} ${pick.ticker} stake`} (practice)
+              {mode === "cpu" ? "CPU match · no stake on the line" : result.my > result.opp || result.forfeit ? `You win the ${stake} ${pick.ticker} stake` : `Opponent wins your ${stake} ${pick.ticker} stake`}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">{kicks.filter((k) => k.status === "sent").length} kicks paid onchain</p>
             <button onClick={() => setScreen("lobby")} className="chunky chunky-press mt-5 w-full rounded-2xl bg-accent py-3 font-display text-stroke text-2xl">PLAY AGAIN</button>
