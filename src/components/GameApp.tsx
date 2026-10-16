@@ -14,7 +14,11 @@ import { useWalletStocks, baseClient } from "@/lib/wallet-stocks";
 import type { Profile } from "@/lib/profile";
 
 type Kick = { id: number; status: "pending" | "sent" | "failed"; hash?: string };
-export type Wallet = { ready: boolean; authed: boolean; address?: string | undefined; email?: string | undefined; login: () => void; logout: () => unknown; pay: () => Promise<string> };
+export type Wallet = {
+  ready: boolean; authed: boolean; address?: string | undefined; email?: string | undefined; login: () => void; logout: () => unknown;
+  pay: () => Promise<string>;
+  send: (to: `0x${string}`, data: `0x${string}`) => Promise<`0x${string}`>;
+};
 
 type View = (w: Wallet | null, p: Profile) => ReactNode;
 export default function GameApp({ view }: { view?: View }) {
@@ -56,6 +60,16 @@ function PrivyBridge({ view }: { view?: View | undefined }) {
       );
       return hash;
     },
+    send: async (to, data) => {
+      if (!embedded) throw new Error("Wallet not ready yet");
+      await embedded.switchChain(base.id).catch(() => {});
+      const { hash } = await sendTransaction(
+        { to, data, chainId: base.id },
+        { address: embedded.address, uiOptions: { showWalletUIs: false } },
+      );
+      await baseClient.waitForTransactionReceipt({ hash });
+      return hash;
+    },
   };
   return <Shell wallet={wallet} view={view} />;
 }
@@ -73,7 +87,19 @@ function Shell({ wallet, view }: { wallet: Wallet | null; view?: View | undefine
   return (
     <div className="px-3 pb-6">
       <div className="mx-auto mb-3 flex max-w-xl justify-end"><WalletBadge wallet={wallet} /></div>
-      <ProfileGate>{(p) => (view ? view(wallet, p) : <Game wallet={wallet} profile={p} />)}</ProfileGate>
+      {wallet && !wallet.authed ? (
+        <section className="chunky mx-auto max-w-md rounded-2xl bg-card p-5 text-center">
+          <p className="text-5xl">⚽</p>
+          <p className="mt-2 font-display text-stroke text-3xl text-gold">WELCOME TO STOCKBALL</p>
+          <p className="mt-1 text-sm text-muted-foreground">Sign in with email or Google to get your Base wallet and start playing.</p>
+          <button onClick={wallet.login} disabled={!wallet.ready}
+            className="chunky chunky-press mt-4 w-full rounded-2xl bg-team-blue py-3 font-display text-stroke text-2xl disabled:opacity-50">
+            {wallet.ready ? "SIGN IN" : "LOADING…"}
+          </button>
+        </section>
+      ) : (
+        <ProfileGate>{(p) => (view ? view(wallet, p) : <Game wallet={wallet} profile={p} />)}</ProfileGate>
+      )}
     </div>
   );
 }

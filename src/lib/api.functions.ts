@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { B20_TOKENS } from "@/lib/b20";
+import { B20_TOKENS, B20_DECIMALS } from "@/lib/b20";
 
 async function sha(s: string) {
   const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
