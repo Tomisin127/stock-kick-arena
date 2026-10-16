@@ -69,22 +69,53 @@ export const reportMatch = createServerFn({ method: "POST" })
     return { points };
   });
 
-export const lend = createServerFn({ method: "POST" })
+// Verifies a real deposit tx on Base and credits its USD value toward lending rank.
+export const recordDeposit = createServerFn({ method: "POST" })
   .inputValidator((d) => Cred.extend({
-    protocol: z.string().min(2).max(40), ticker: z.string().max(12), amount: z.number().positive().max(100000),
+    txHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
+    protocol: z.string().min(2).max(40),
   }).parse(d))
   .handler(async ({ data }) => {
-    const token = B20_TOKENS.find((t) => t.ticker === data.ticker);
-    if (!token) throw new Error("Invalid stock");
     const { db } = await verify(data.id, data.key);
-    const r = await fetch(`https://coins.llama.fi/prices/current/base:${token.address}`).then((x) => x.json()).catch(() => null);
-    const price = Number(r?.coins?.[`base:${token.address}`]?.price) || 0;
-    if (!price) throw new Error("Price unavailable, try again");
-    await db.from("lend_positions").insert({
-      player_id: data.id, protocol: data.protocol, ticker: data.ticker,
-      amount: data.amount, usd_value: data.amount * price,
+    const { createPublicClient, http, decodeEventLog, erc20Abi, formatUnits } = await import("viem");
+    const { base: chain } = await import("viem/chains");
+    const { USDC, AAVE_POOL, AERO_ROUTER } = await import("@/lib/defi");
+    const client = createPublicClient({ chain, transport: http("https://mainnet.base.org") });
+    const hash = data.txHash as `0x${string}`;
+    const [tx, rc] = await Promise.all([client.getTransaction({ hash }), client.waitForTransactionReceipt({ hash, timeout: 30_000 })]);
+    if (rc.status !== "success" || !tx.to) throw new Error("Transaction failed");
+    const from = tx.from.toLowerCase(), to = tx.to.toLowerCase();
+    const known = [AAVE_POOL, AERO_ROUTER].map((a) => a.toLowerCase()).includes(to);
+    const stocks = new Map(B20_TOKENS.map((t) => [t.address.toLowerCase(), t]));
+    const moved: { token: string; amount: number; ticker: string }[] = [];
+    for (const log of rc.logs) {
+      const token = log.address.toLowerCase();
+      const isUsdc = token === USDC.toLowerCase();
+      if (!isUsdc && !stocks.has(token)) continue;
+      try {
+        const ev = decodeEventLog({ abi: erc20Abi, data: log.data, topics: log.topics });
+        if (ev.eventName !== "Transfer") continue;
+        const a = ev.args as { from: string; to: string; value: bigint };
+        if (a.from.toLowerCase() !== from) continue;
+        if (!known && a.to.toLowerCase() !== to) continue;
+        moved.push({ token, amount: Number(formatUnits(a.value, isUsdc ? 6 : B20_DECIMALS)), ticker: isUsdc ? "USDC" : stocks.get(token)!.ticker });
+      } catch { /* not a transfer */ }
+    }
+    if (!moved.length) throw new Error("No stock or USDC deposit found in this transaction");
+    const stockAddrs = moved.filter((m) => m.ticker !== "USDC").map((m) => `base:${m.token}`);
+    const prices: Record<string, number> = {};
+    if (stockAddrs.length) {
+      const r = await fetch(`https://coins.llama.fi/prices/current/${stockAddrs.join(",")}`).then((x) => x.json()).catch(() => null);
+      for (const [k, v] of Object.entries<any>(r?.coins ?? {})) prices[k.slice(5).toLowerCase()] = Number(v.price) || 0;
+    }
+    const usd = moved.reduce((s, m) => s + m.amount * (m.ticker === "USDC" ? 1 : prices[m.token] ?? 0), 0);
+    const main = moved.find((m) => m.ticker !== "USDC") ?? moved[0]!;
+    const { error } = await db.from("lend_positions").insert({
+      player_id: data.id, protocol: data.protocol, ticker: moved.map((m) => m.ticker).filter((v, i, a) => a.indexOf(v) === i).join("+").slice(0, 24),
+      amount: main.amount, usd_value: usd, tx_hash: hash.toLowerCase(), wallet: from,
     });
-    return { ok: true };
+    if (error) throw new Error(error.code === "23505" ? "Deposit already counted" : error.message);
+    return { usd };
   });
 
 export const withdraw = createServerFn({ method: "POST" })
