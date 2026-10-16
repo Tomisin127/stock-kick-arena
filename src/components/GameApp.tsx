@@ -217,26 +217,30 @@ function Game({ wallet, profile }: { wallet: Wallet | null; profile: Profile }) 
             </div>
           </Panel>
           <Panel>
-            <h2 className="font-display text-stroke text-xl">3. Set your stake</h2>
-            <div className="mt-2 flex items-center gap-2">
-              <input type="number" min={0} step="any" value={stake} max={held?.balance}
-                onChange={(e) => setStake(Math.max(0, Number(e.target.value) || 0))}
-                className="chunky w-full rounded-xl bg-secondary px-3 py-2 font-display text-lg outline-none" />
-              {held && <button onClick={() => setStake(held.balance)} className="chunky chunky-press rounded-xl bg-secondary px-3 py-2 font-display">MAX</button>}
-            </div>
-            <p className="mt-2 text-sm text-muted-foreground">
-              {stake} {ball.ticker} ≈ ${(stake * ball.price).toFixed(2)}{held ? ` · you hold ${held.balance}` : " · practice"}
-            </p>
-            {overStake && <p className="mt-1 text-sm text-destructive">That's more than you hold.</p>}
-            <p className="mt-2 text-xs text-muted-foreground">Every kick sends ${KICK_USD} in ETH on Base to the game creator.</p>
-            {wallet && !wallet.authed ? (
-              <button onClick={wallet.login} disabled={!wallet.ready}
-                className="chunky chunky-press mt-3 w-full rounded-2xl bg-team-blue py-3 font-display text-stroke text-2xl">SIGN IN WITH EMAIL</button>
+            {mode === "pvp" ? (
+              <>
+                <h2 className="font-display text-stroke text-xl">3. Set your PvP stake</h2>
+                <div className="mt-2 flex items-center gap-2">
+                  <input type="number" min={0} step="any" value={stake} max={held?.balance}
+                    onChange={(e) => setStake(Math.max(0, Number(e.target.value) || 0))}
+                    className="chunky w-full rounded-xl bg-secondary px-3 py-2 font-display text-lg outline-none" />
+                  {held && <button onClick={() => setStake(held.balance)} className="chunky chunky-press rounded-xl bg-secondary px-3 py-2 font-display">MAX</button>}
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {stake} {ball.ticker} ≈ ${(stake * ball.price).toFixed(2)}{held ? ` · you hold ${held.balance}` : " · practice"}
+                </p>
+                {overStake && <p className="mt-1 text-sm text-destructive">That's more than you hold.</p>}
+              </>
             ) : (
-              <button onClick={start} disabled={overStake} className="chunky chunky-press mt-3 w-full rounded-2xl bg-accent py-3 font-display text-stroke text-2xl text-foreground disabled:opacity-50">
-                {mode === "pvp" ? "FIND OPPONENT" : "LOCK IN & PLAY"}
-              </button>
+              <>
+                <h2 className="font-display text-stroke text-xl">3. Ready?</h2>
+                <p className="mt-1 text-sm text-muted-foreground">No stake in CPU mode — just play, score and earn rank points.</p>
+              </>
             )}
+            <p className="mt-2 text-xs text-muted-foreground">Every kick sends ${KICK_USD} in ETH on Base to the game creator.</p>
+            <button onClick={start} disabled={mode === "pvp" && overStake} className="chunky chunky-press mt-3 w-full rounded-2xl bg-accent py-3 font-display text-stroke text-2xl text-foreground disabled:opacity-50">
+              {mode === "pvp" ? "LOCK STAKE & FIND OPPONENT" : "KICK OFF!"}
+            </button>
           </Panel>
         </main>
       )}
