@@ -1,0 +1,2 @@
+ALTER TABLE public.lend_positions ADD COLUMN IF NOT EXISTS tx_hash text, ADD COLUMN IF NOT EXISTS wallet text;
+CREATE UNIQUE INDEX IF NOT EXISTS lend_positions_tx_hash_key ON public.lend_positions (lower(tx_hash));

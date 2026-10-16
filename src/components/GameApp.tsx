@@ -14,7 +14,11 @@ import { useWalletStocks, baseClient } from "@/lib/wallet-stocks";
 import type { Profile } from "@/lib/profile";
 
 type Kick = { id: number; status: "pending" | "sent" | "failed"; hash?: string };
-export type Wallet = { ready: boolean; authed: boolean; address?: string | undefined; email?: string | undefined; login: () => void; logout: () => unknown; pay: () => Promise<string> };
+export type Wallet = {
+  ready: boolean; authed: boolean; address?: string | undefined; email?: string | undefined; login: () => void; logout: () => unknown;
+  pay: () => Promise<string>;
+  send: (to: `0x${string}`, data: `0x${string}`) => Promise<`0x${string}`>;
+};
 
 type View = (w: Wallet | null, p: Profile) => ReactNode;
 export default function GameApp({ view }: { view?: View }) {
@@ -56,6 +60,16 @@ function PrivyBridge({ view }: { view?: View | undefined }) {
       );
       return hash;
     },
+    send: async (to, data) => {
+      if (!embedded) throw new Error("Wallet not ready yet");
+      await embedded.switchChain(base.id).catch(() => {});
+      const { hash } = await sendTransaction(
+        { to, data, chainId: base.id },
+        { address: embedded.address, uiOptions: { showWalletUIs: false } },
+      );
+      await baseClient.waitForTransactionReceipt({ hash });
+      return hash;
+    },
   };
   return <Shell wallet={wallet} view={view} />;
 }
@@ -73,7 +87,19 @@ function Shell({ wallet, view }: { wallet: Wallet | null; view?: View | undefine
   return (
     <div className="px-3 pb-6">
       <div className="mx-auto mb-3 flex max-w-xl justify-end"><WalletBadge wallet={wallet} /></div>
-      <ProfileGate>{(p) => (view ? view(wallet, p) : <Game wallet={wallet} profile={p} />)}</ProfileGate>
+      {wallet && !wallet.authed ? (
+        <section className="chunky mx-auto max-w-md rounded-2xl bg-card p-5 text-center">
+          <p className="text-5xl">⚽</p>
+          <p className="mt-2 font-display text-stroke text-3xl text-gold">WELCOME TO STOCKBALL</p>
+          <p className="mt-1 text-sm text-muted-foreground">Sign in with email or Google to get your Base wallet and start playing.</p>
+          <button onClick={wallet.login} disabled={!wallet.ready}
+            className="chunky chunky-press mt-4 w-full rounded-2xl bg-team-blue py-3 font-display text-stroke text-2xl disabled:opacity-50">
+            {wallet.ready ? "SIGN IN" : "LOADING…"}
+          </button>
+        </section>
+      ) : (
+        <ProfileGate>{(p) => (view ? view(wallet, p) : <Game wallet={wallet} profile={p} />)}</ProfileGate>
+      )}
     </div>
   );
 }
@@ -191,26 +217,30 @@ function Game({ wallet, profile }: { wallet: Wallet | null; profile: Profile }) 
             </div>
           </Panel>
           <Panel>
-            <h2 className="font-display text-stroke text-xl">3. Set your stake</h2>
-            <div className="mt-2 flex items-center gap-2">
-              <input type="number" min={0} step="any" value={stake} max={held?.balance}
-                onChange={(e) => setStake(Math.max(0, Number(e.target.value) || 0))}
-                className="chunky w-full rounded-xl bg-secondary px-3 py-2 font-display text-lg outline-none" />
-              {held && <button onClick={() => setStake(held.balance)} className="chunky chunky-press rounded-xl bg-secondary px-3 py-2 font-display">MAX</button>}
-            </div>
-            <p className="mt-2 text-sm text-muted-foreground">
-              {stake} {ball.ticker} ≈ ${(stake * ball.price).toFixed(2)}{held ? ` · you hold ${held.balance}` : " · practice"}
-            </p>
-            {overStake && <p className="mt-1 text-sm text-destructive">That's more than you hold.</p>}
-            <p className="mt-2 text-xs text-muted-foreground">Every kick sends ${KICK_USD} in ETH on Base to the game creator.</p>
-            {wallet && !wallet.authed ? (
-              <button onClick={wallet.login} disabled={!wallet.ready}
-                className="chunky chunky-press mt-3 w-full rounded-2xl bg-team-blue py-3 font-display text-stroke text-2xl">SIGN IN WITH EMAIL</button>
+            {mode === "pvp" ? (
+              <>
+                <h2 className="font-display text-stroke text-xl">3. Set your PvP stake</h2>
+                <div className="mt-2 flex items-center gap-2">
+                  <input type="number" min={0} step="any" value={stake} max={held?.balance}
+                    onChange={(e) => setStake(Math.max(0, Number(e.target.value) || 0))}
+                    className="chunky w-full rounded-xl bg-secondary px-3 py-2 font-display text-lg outline-none" />
+                  {held && <button onClick={() => setStake(held.balance)} className="chunky chunky-press rounded-xl bg-secondary px-3 py-2 font-display">MAX</button>}
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {stake} {ball.ticker} ≈ ${(stake * ball.price).toFixed(2)}{held ? ` · you hold ${held.balance}` : " · practice"}
+                </p>
+                {overStake && <p className="mt-1 text-sm text-destructive">That's more than you hold.</p>}
+              </>
             ) : (
-              <button onClick={start} disabled={overStake} className="chunky chunky-press mt-3 w-full rounded-2xl bg-accent py-3 font-display text-stroke text-2xl text-foreground disabled:opacity-50">
-                {mode === "pvp" ? "FIND OPPONENT" : "LOCK IN & PLAY"}
-              </button>
+              <>
+                <h2 className="font-display text-stroke text-xl">3. Ready?</h2>
+                <p className="mt-1 text-sm text-muted-foreground">No stake in CPU mode — just play, score and earn rank points.</p>
+              </>
             )}
+            <p className="mt-2 text-xs text-muted-foreground">Every kick sends ${KICK_USD} in ETH on Base to the game creator.</p>
+            <button onClick={start} disabled={mode === "pvp" && overStake} className="chunky chunky-press mt-3 w-full rounded-2xl bg-accent py-3 font-display text-stroke text-2xl text-foreground disabled:opacity-50">
+              {mode === "pvp" ? "LOCK STAKE & FIND OPPONENT" : "KICK OFF!"}
+            </button>
           </Panel>
         </main>
       )}
@@ -256,7 +286,7 @@ function Game({ wallet, profile }: { wallet: Wallet | null; profile: Profile }) 
             <p className="mt-2 font-display text-3xl">{result.forfeit ? "Opponent left" : `${result.my} – ${result.opp}`}</p>
             <p className="chunky mx-auto mt-4 inline-block rounded-xl bg-primary px-4 py-2 font-display text-2xl text-primary-foreground">+{result.points} RANK PTS</p>
             <p className="mt-3 text-sm text-muted-foreground">
-              {result.my > result.opp || result.forfeit ? `You keep your ${stake} ${pick.ticker} and win your opponent's stake` : `Opponent takes your ${stake} ${pick.ticker} stake`} (practice)
+              {mode === "cpu" ? "CPU match · no stake on the line" : result.my > result.opp || result.forfeit ? `You win the ${stake} ${pick.ticker} stake` : `Opponent wins your ${stake} ${pick.ticker} stake`}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">{kicks.filter((k) => k.status === "sent").length} kicks paid onchain</p>
             <button onClick={() => setScreen("lobby")} className="chunky chunky-press mt-5 w-full rounded-2xl bg-accent py-3 font-display text-stroke text-2xl">PLAY AGAIN</button>
