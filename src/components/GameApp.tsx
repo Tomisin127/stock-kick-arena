@@ -17,7 +17,7 @@ type Kick = { id: number; status: "pending" | "sent" | "failed"; hash?: string }
 export type Wallet = {
   ready: boolean; authed: boolean; address?: string | undefined; email?: string | undefined; login: () => void; logout: () => unknown;
   pay: () => Promise<string>;
-  send: (to: `0x${string}`, data: `0x${string}`) => Promise<`0x${string}`>;
+  send: (to: `0x${string}`, data: `0x${string}`, value?: bigint) => Promise<`0x${string}`>;
 };
 
 type View = (w: Wallet | null, p: Profile) => ReactNode;
@@ -60,11 +60,11 @@ function PrivyBridge({ view }: { view?: View | undefined }) {
       );
       return hash;
     },
-    send: async (to, data) => {
+    send: async (to, data, value) => {
       if (!embedded) throw new Error("Wallet not ready yet");
       await embedded.switchChain(base.id).catch(() => {});
       const { hash } = await sendTransaction(
-        { to, data, chainId: base.id },
+        { to, data, value, chainId: base.id },
         { address: embedded.address, uiOptions: { showWalletUIs: false } },
       );
       await baseClient.waitForTransactionReceipt({ hash });
