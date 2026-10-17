@@ -15,6 +15,13 @@
       "when": 1792116603875,
       "tag": "0001_lend_tx",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792235761158,
+      "tag": "0002_swap_points",
+      "breakpoints": true
     }
   ]
 }

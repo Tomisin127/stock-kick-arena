@@ -112,6 +112,7 @@ export type Database = {
           losses: number
           name: string
           pvp_wins: number
+          swap_points: number
           wins: number
         }
         Insert: {
@@ -124,6 +125,7 @@ export type Database = {
           losses?: number
           name: string
           pvp_wins?: number
+          swap_points?: number
           wins?: number
         }
         Update: {
@@ -136,9 +138,58 @@ export type Database = {
           losses?: number
           name?: string
           pvp_wins?: number
+          swap_points?: number
           wins?: number
         }
         Relationships: []
+      }
+      swaps: {
+        Row: {
+          created_at: string
+          from_ticker: string
+          id: string
+          player_id: string
+          points: number
+          to_ticker: string
+          tx_hash: string
+          usd_value: number
+        }
+        Insert: {
+          created_at?: string
+          from_ticker: string
+          id?: string
+          player_id: string
+          points?: number
+          to_ticker: string
+          tx_hash: string
+          usd_value: number
+        }
+        Update: {
+          created_at?: string
+          from_ticker?: string
+          id?: string
+          player_id?: string
+          points?: number
+          to_ticker?: string
+          tx_hash?: string
+          usd_value?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "swaps_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "leaderboard"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "swaps_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
@@ -152,6 +203,7 @@ export type Database = {
           losses: number | null
           name: string | null
           pvp_wins: number | null
+          swap_points: number | null
           total_points: number | null
           wins: number | null
         }
