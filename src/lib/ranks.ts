@@ -30,4 +30,5 @@ export const POINT_RULES = [
   ["Win vs CPU", "+20"], ["Win online PvP", "+40"], ["Loss", "+3 / +8 PvP"],
   ["Each goal", "+5"], ["Each kick (max 40)", "+1"],
   ["Lend", "+1 per $10 lent"], ["Keep lending", "+0.05 per $ per day"],
+  ["Swap on Uniswap", "+1 per $1 swapped"],
 ] as const;
