@@ -64,7 +64,7 @@ function PrivyBridge({ view }: { view?: View | undefined }) {
       if (!embedded) throw new Error("Wallet not ready yet");
       await embedded.switchChain(base.id).catch(() => {});
       const { hash } = await sendTransaction(
-        { to, data, value, chainId: base.id },
+        { to, data, ...(value !== undefined ? { value } : {}), chainId: base.id },
         { address: embedded.address, uiOptions: { showWalletUIs: false } },
       );
       await baseClient.waitForTransactionReceipt({ hash });

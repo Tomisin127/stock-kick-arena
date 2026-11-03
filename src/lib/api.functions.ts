@@ -127,10 +127,67 @@ export const withdraw = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+// Verifies a real Uniswap V3 swap on Base and awards rank points for its USD value.
+export const recordSwap = createServerFn({ method: "POST" })
+  .inputValidator((d) => Cred.extend({
+    txHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
+    fromTicker: z.string().min(1).max(12),
+    toTicker: z.string().min(1).max(12),
+  }).parse(d))
+  .handler(async ({ data }) => {
+    const { db, player } = await verify(data.id, data.key);
+    const { createPublicClient, http, decodeEventLog, erc20Abi, formatUnits } = await import("viem");
+    const { base: chain } = await import("viem/chains");
+    const { UNI_ROUTER, WETH, USDC } = await import("@/lib/defi");
+    const client = createPublicClient({ chain, transport: http("https://mainnet.base.org") });
+    const hash = data.txHash as `0x${string}`;
+    const [tx, rc] = await Promise.all([client.getTransaction({ hash }), client.waitForTransactionReceipt({ hash, timeout: 30_000 })]);
+    if (rc.status !== "success" || !tx.to) throw new Error("Transaction failed");
+    if (tx.to.toLowerCase() !== UNI_ROUTER.toLowerCase()) throw new Error("Not a Uniswap swap");
+    const from = tx.from.toLowerCase();
+    const stocks = new Map(B20_TOKENS.map((t) => [t.address.toLowerCase(), t]));
+    let usdIn = 0;
+    const ethPrice = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd")
+      .then((r) => r.json()).then((j) => Number(j?.ethereum?.usd) || 0).catch(() => 0);
+    if (tx.value > 0n) usdIn += Number(formatUnits(tx.value, 18)) * ethPrice;
+    const addrs: string[] = [];
+    const spent: { token: string; amount: number; ticker: string }[] = [];
+    for (const log of rc.logs) {
+      const token = log.address.toLowerCase();
+      const isUsdc = token === USDC.toLowerCase();
+      const isWeth = token === WETH.toLowerCase();
+      if (!isUsdc && !isWeth && !stocks.has(token)) continue;
+      try {
+        const ev = decodeEventLog({ abi: erc20Abi, data: log.data, topics: log.topics });
+        if (ev.eventName !== "Transfer") continue;
+        const a = ev.args as { from: string; to: string; value: bigint };
+        if (a.from.toLowerCase() !== from) continue;
+        const ticker = isUsdc ? "USDC" : isWeth ? "ETH" : stocks.get(token)!.ticker;
+        spent.push({ token, amount: Number(formatUnits(a.value, isUsdc ? 6 : isWeth ? 18 : B20_DECIMALS)), ticker });
+        if (!isUsdc && !isWeth) addrs.push(token);
+      } catch { /* not a transfer */ }
+    }
+    const prices: Record<string, number> = {};
+    if (addrs.length) {
+      const r = await fetch(`https://coins.llama.fi/prices/current/${addrs.map((a) => `base:${a}`).join(",")}`).then((x) => x.json()).catch(() => null);
+      for (const [k, v] of Object.entries<any>(r?.coins ?? {})) prices[k.slice(5).toLowerCase()] = Number(v.price) || 0;
+    }
+    for (const s of spent) usdIn += s.amount * (s.ticker === "USDC" ? 1 : s.ticker === "ETH" ? ethPrice : prices[s.token] ?? 0);
+    if (usdIn <= 0) throw new Error("No swap value found in this transaction");
+    const points = Math.max(1, Math.floor(usdIn));
+    const { error } = await db.from("swaps").insert({
+      player_id: data.id, tx_hash: hash.toLowerCase(),
+      from_ticker: data.fromTicker, to_ticker: data.toTicker, usd_value: usdIn, points,
+    });
+    if (error) throw new Error(error.code === "23505" ? "Swap already counted" : error.message);
+    await db.from("players").update({ swap_points: player.swap_points + points }).eq("id", data.id);
+    return { usd: usdIn, points };
+  });
+
 export const getLeaderboard = createServerFn({ method: "GET" }).handler(async () => {
   const db = await admin();
   const { data } = await db.from("leaderboard")
-    .select("id, name, wins, losses, pvp_wins, goals, lent_usd, lend_points, game_points, total_points")
+    .select("id, name, wins, losses, pvp_wins, goals, lent_usd, lend_points, game_points, swap_points, total_points")
     .order("total_points", { ascending: false }).limit(100);
   return data ?? [];
 });
