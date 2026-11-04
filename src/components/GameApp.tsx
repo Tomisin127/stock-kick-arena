@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Copy } from "lucide-react";
 import { PrivyProvider, usePrivy, useWallets, useSendTransaction } from "@privy-io/react-auth";
 import { useServerFn } from "@tanstack/react-start";
 import { base } from "viem/chains";
@@ -302,14 +303,32 @@ function Panel({ children }: { children: ReactNode }) {
 }
 
 function WalletBadge({ wallet }: { wallet: Wallet | null }) {
+  const [copied, setCopied] = useState(false);
   if (!wallet) return <span className="chunky rounded-xl bg-muted px-3 py-1 text-xs font-bold">Practice mode · no payments</span>;
   if (!wallet.authed) return null;
   const a = wallet.address;
   return (
-    <button onClick={wallet.logout} className="chunky chunky-press rounded-xl bg-muted px-3 py-1 text-left text-xs font-bold">
-      <div>{wallet.email}</div>
-      <div className="text-muted-foreground">{a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "creating wallet…"} · Sign out</div>
-    </button>
+    <div className="chunky flex items-center gap-2 rounded-xl bg-muted px-3 py-1 text-xs font-bold">
+      {a && (
+        <button
+          aria-label="Copy wallet address"
+          title={copied ? "Copied!" : "Copy full address"}
+          onClick={() => {
+            navigator.clipboard?.writeText(a).catch(() => {});
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          }}
+          className="chunky chunky-press flex items-center gap-1 rounded-lg bg-secondary px-2 py-1 text-muted-foreground"
+        >
+          <Copy size={12} />
+          <span className="text-[10px]">{copied ? "COPIED" : "COPY"}</span>
+        </button>
+      )}
+      <button onClick={wallet.logout} className="text-left">
+        <div>{wallet.email}</div>
+        <div className="text-muted-foreground">{a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "creating wallet…"} · Sign out</div>
+      </button>
+    </div>
   );
 }
 
