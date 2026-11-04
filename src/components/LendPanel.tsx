@@ -46,7 +46,7 @@ function useOpportunities() {
           if (p !== zeroAddress) out.push({
             id: `aero-${t.ticker}-${stable ? "s" : "v"}`, kind: "aerodrome", protocol: "aerodrome-v1", title: "Aerodrome",
             sub: `${t.ticker} / USDC ${stable ? "stable" : "volatile"} pool`, asset: t.address, decimals: B20_DECIMALS, symbol: t.ticker,
-            target: p, pair: USDC, stable,
+            target: p, pair: USDC, stable: stable === 1,
           });
         }
       });
