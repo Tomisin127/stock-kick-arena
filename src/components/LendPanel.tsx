@@ -117,16 +117,16 @@ export function LendPanel({ wallet, profile }: { wallet: Wallet | null; profile:
       } else {
         const usdcBal = parseUnits((usdc.data ?? 0).toFixed(USDC_DECIMALS), USDC_DECIMALS);
         const [a, b] = await baseClient.readContract({ address: AERO_ROUTER, abi: aeroRouterAbi, functionName: "quoteAddLiquidity",
-          args: [o.asset, USDC, false, AERO_FACTORY, amount, 10n ** 30n] });
+          args: [o.asset, o.pair, o.stable, AERO_FACTORY, amount, 10n ** 30n] });
         let amtA = a, amtB = b;
         if (amtB > usdcBal) { // scale down to what USDC allows
           if (usdcBal === 0n) throw new Error("This pool also needs USDC in your wallet");
           amtA = (a * usdcBal) / b; amtB = usdcBal;
         }
         await approve(o.asset, AERO_ROUTER, amtA);
-        await approve(USDC, AERO_ROUTER, amtB);
+        await approve(o.pair, AERO_ROUTER, amtB);
         hash = await wallet.send(AERO_ROUTER, encodeFunctionData({ abi: aeroRouterAbi, functionName: "addLiquidity",
-          args: [o.asset, USDC, false, amtA, amtB, (amtA * 97n) / 100n, (amtB * 97n) / 100n, owner, BigInt(Math.floor(Date.now() / 1000) + 1200)] }));
+          args: [o.asset, o.pair, o.stable, amtA, amtB, (amtA * 97n) / 100n, (amtB * 97n) / 100n, owner, BigInt(Math.floor(Date.now() / 1000) + 1200)] }));
       }
       setMsg({ id: o.id, text: "Verifying deposit…" });
       const r = await record({ data: { id: profile.id, key: profile.key, txHash: hash, protocol: o.protocol } });
@@ -167,7 +167,7 @@ export function LendPanel({ wallet, profile }: { wallet: Wallet | null; profile:
       {!wallet?.authed && <p className="text-center text-sm text-muted-foreground">Sign in to deposit from your game wallet.</p>}
       {opps.isLoading && <p className="text-center text-sm text-muted-foreground">Loading pools on Base…</p>}
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {sorted.map((o) => {
           const b = bal(o.asset);
           return (
