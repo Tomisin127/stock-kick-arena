@@ -5,7 +5,7 @@ import { encodeFunctionData, erc20Abi, formatUnits, parseUnits, zeroAddress } fr
 import { getMe, recordDeposit, withdraw } from "@/lib/api.functions";
 import { B20_TOKENS, B20_DECIMALS } from "@/lib/b20";
 import { baseClient, useWalletStocks } from "@/lib/wallet-stocks";
-import { AAVE_POOL, AERO_FACTORY, AERO_ROUTER, USDC, USDC_DECIMALS, aaveAbi, aeroFactoryAbi, aeroRouterAbi, vaultAbi } from "@/lib/defi";
+import { AAVE_POOL, AERO_FACTORY, AERO_ROUTER, USDC, USDC_DECIMALS, aaveAbi, aavePoolViewAbi, aeroFactoryAbi, aeroRouterAbi, vaultAbi } from "@/lib/defi";
 import { TierProgress } from "@/components/TierBadge";
 import type { Profile } from "@/lib/profile";
 import type { Wallet } from "@/components/GameApp";
@@ -13,7 +13,7 @@ import type { Wallet } from "@/components/GameApp";
 type Hex = `0x${string}`;
 type Opp = {
   id: string; kind: "aave" | "morpho" | "aerodrome"; protocol: string; title: string; sub: string; apy?: number | undefined; tvl?: number | undefined;
-  asset: Hex; decimals: number; symbol: string; target: Hex;
+  asset: Hex; decimals: number; symbol: string; target: Hex; pair: Hex; stable: boolean;
 };
 
 const lc = (s: string) => s.toLowerCase();
@@ -22,33 +22,51 @@ function useOpportunities() {
   return useQuery({
     queryKey: ["defi-opps"], staleTime: 300_000,
     queryFn: async (): Promise<Opp[]> => {
-      const out: Opp[] = [{
-        id: "aave-usdc", kind: "aave", protocol: "aave-v3", title: "Aave V3", sub: "Supply USDC", asset: USDC, decimals: USDC_DECIMALS, symbol: "USDC", target: AAVE_POOL,
-      }];
-      // Aerodrome stock/USDC volatile pools
-      const pools = await baseClient.multicall({
-        allowFailure: true,
-        contracts: B20_TOKENS.map((t) => ({ address: AERO_FACTORY, abi: aeroFactoryAbi, functionName: "getPool", args: [t.address, USDC, false] }) as const),
-      }).catch(() => []);
+      const out: Opp[] = [];
+      // Aave V3: ask the pool which reserves it actually lists (USDC + any tokenized stocks).
+      const reserves = await baseClient.readContract({ address: AAVE_POOL, abi: aavePoolViewAbi, functionName: "getReservesList" })
+        .then((r) => r as Hex[]).catch(() => [] as Hex[]);
+      const inAave = new Set(reserves.map((r) => lc(r)));
+      const aaveOpp = (t: { ticker: string; address: Hex }, decimals: number): Opp => ({
+        id: `aave-${t.ticker}`, kind: "aave", protocol: "aave-v3", title: "Aave V3", sub: `Supply ${t.ticker}`,
+        asset: t.address, decimals, symbol: t.ticker, target: AAVE_POOL, pair: USDC, stable: false,
+      });
+      if (inAave.has(lc(USDC))) out.push(aaveOpp({ ticker: "USDC", address: USDC }, USDC_DECIMALS));
+      for (const t of B20_TOKENS) if (inAave.has(lc(t.address))) out.push(aaveOpp(t, B20_DECIMALS));
+      // Aerodrome stock/USDC pools, volatile and stable
+      const calls = B20_TOKENS.flatMap((t) => [
+        { address: AERO_FACTORY, abi: aeroFactoryAbi, functionName: "getPool", args: [t.address, USDC, false] } as const,
+        { address: AERO_FACTORY, abi: aeroFactoryAbi, functionName: "getPool", args: [t.address, USDC, true] } as const,
+      ]);
+      const pools = await baseClient.multicall({ allowFailure: true, contracts: calls }).catch(() => []);
       B20_TOKENS.forEach((t, i) => {
-        const r = pools[i];
-        const p = r && r.status === "success" ? (r.result as Hex) : zeroAddress;
-        if (p !== zeroAddress) out.push({ id: `aero-${t.ticker}`, kind: "aerodrome", protocol: "aerodrome-v1", title: "Aerodrome", sub: `${t.ticker} / USDC pool`, asset: t.address, decimals: B20_DECIMALS, symbol: t.ticker, target: p });
+        for (const [j, stable] of [0, 1].entries()) {
+          const r = pools[i * 2 + j];
+          const p = r && r.status === "success" ? (r.result as Hex) : zeroAddress;
+          if (p !== zeroAddress) out.push({
+            id: `aero-${t.ticker}-${stable ? "s" : "v"}`, kind: "aerodrome", protocol: "aerodrome-v1", title: "Aerodrome",
+            sub: `${t.ticker} / USDC ${stable ? "stable" : "volatile"} pool`, asset: t.address, decimals: B20_DECIMALS, symbol: t.ticker,
+            target: p, pair: USDC, stable,
+          });
+        }
       });
       // Morpho ERC-4626 vaults for USDC + stocks
-      const q = `{ vaults(first: 30, orderBy: TotalAssetsUsd, orderDirection: Desc, where: { chainId_in: [8453], whitelisted: true, assetAddress_in: ${JSON.stringify([USDC, ...B20_TOKENS.map((t) => t.address)])} }) { items { address name asset { address symbol decimals } state { netApy totalAssetsUsd } } } }`;
+      const q = `{ vaults(first: 50, orderBy: TotalAssetsUsd, orderDirection: Desc, where: { chainId_in: [8453], whitelisted: true, assetAddress_in: ${JSON.stringify([USDC, ...B20_TOKENS.map((t) => t.address)])} }) { items { address name asset { address symbol decimals } state { netApy totalAssetsUsd } } } }`;
       const m = await fetch("https://blue-api.morpho.org/graphql", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: q }) })
         .then((r) => r.json()).catch(() => null);
       for (const v of m?.data?.vaults?.items ?? []) {
         out.push({ id: `morpho-${v.address}`, kind: "morpho", protocol: "morpho", title: "Morpho", sub: v.name, apy: (v.state?.netApy ?? 0) * 100, tvl: v.state?.totalAssetsUsd,
-          asset: v.asset.address, decimals: v.asset.decimals, symbol: v.asset.symbol, target: v.address });
+          asset: v.asset.address, decimals: v.asset.decimals, symbol: v.asset.symbol, target: v.address, pair: USDC, stable: false });
       }
       // APYs from DeFiLlama where available
       const y = await fetch("https://yields.llama.fi/pools").then((r) => r.json()).catch(() => null);
       for (const p of (y?.data ?? []) as any[]) {
         if (p.chain !== "Base") continue;
-        if (p.project === "aave-v3" && p.symbol === "USDC") { out[0]!.apy = p.apy; out[0]!.tvl = p.tvlUsd; }
-        const o = out.find((x) => x.kind === "aerodrome" && lc(p.pool ?? "").includes(lc(x.target)));
+        if (p.project === "aave-v3" && p.symbol === "USDC") {
+          const a = out.find((x) => x.kind === "aave" && x.symbol === "USDC");
+          if (a) { a.apy = p.apy; a.tvl = p.tvlUsd; }
+        }
+        const o = out.find((x) => x.kind === "aerodrome" && lc(p.pool ?? "") === lc(x.target));
         if (o) { o.apy = p.apy; o.tvl = p.tvlUsd; }
       }
       return out;
