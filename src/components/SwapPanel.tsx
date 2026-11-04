@@ -1,18 +1,19 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useMemo, useState } from "react";
+import { ChevronDown, Search } from "lucide-react";
 import { encodeFunctionData, erc20Abi, formatUnits, parseUnits } from "viem";
 import { recordSwap } from "@/lib/api.functions";
-import { B20_DECIMALS } from "@/lib/b20";
+import { B20_TOKENS, B20_DECIMALS } from "@/lib/b20";
 import { baseClient, useWalletStocks } from "@/lib/wallet-stocks";
 import { UNI_QUOTER, UNI_ROUTER, USDC, USDC_DECIMALS, WETH, quoterAbi, uniRouterAbi } from "@/lib/defi";
 import type { Profile } from "@/lib/profile";
 import type { Wallet } from "@/components/GameApp";
 
 type Hex = `0x${string}`;
-type Token = { symbol: string; address: Hex; decimals: number; isEth?: boolean };
-const ETH: Token = { symbol: "ETH", address: WETH, decimals: 18, isEth: true };
-const USDC_T: Token = { symbol: "USDC", address: USDC, decimals: USDC_DECIMALS };
+type Token = { symbol: string; name: string; address: Hex; decimals: number; color: string; isEth?: boolean };
+const ETH: Token = { symbol: "ETH", name: "Ether", address: WETH, decimals: 18, color: "#627eea", isEth: true };
+const USDC_T: Token = { symbol: "USDC", name: "USD Coin", address: USDC, decimals: USDC_DECIMALS, color: "#2775ca" };
 const FEES = [500, 3000, 10000] as const;
 
 export function SwapPanel({ wallet, profile }: { wallet: Wallet | null; profile: Profile }) {
@@ -25,10 +26,19 @@ export function SwapPanel({ wallet, profile }: { wallet: Wallet | null; profile:
     queryFn: async () => Number(formatUnits(await baseClient.readContract({ address: USDC, abi: erc20Abi, functionName: "balanceOf", args: [owner!] }), USDC_DECIMALS)),
   });
 
+  // Every verified tokenized stock on Base can be swapped in and out.
   const tokens = useMemo<Token[]>(() => [
     ETH, USDC_T,
-    ...(assets.data?.holdings ?? []).map((h) => ({ symbol: h.ticker, address: h.address, decimals: B20_DECIMALS })),
-  ], [assets.data]);
+    ...B20_TOKENS.map((t) => ({ symbol: t.ticker, name: t.name, address: t.address, decimals: B20_DECIMALS, color: t.color })),
+  ], []);
+
+  const balances = useMemo(() => {
+    const m = new Map<string, number>();
+    m.set("ETH", assets.data?.eth ?? 0);
+    m.set("USDC", usdc.data ?? 0);
+    for (const h of assets.data?.holdings ?? []) m.set(h.ticker, h.balance);
+    return m;
+  }, [assets.data, usdc.data]);
 
   const [fromSym, setFromSym] = useState("ETH");
   const [toSym, setToSym] = useState("USDC");
@@ -88,21 +98,18 @@ export function SwapPanel({ wallet, profile }: { wallet: Wallet | null; profile:
   };
 
   const outHuman = quote.data ? Number(formatUnits(quote.data.out, to.decimals)) : null;
-  const selectCls = "chunky w-full rounded-lg bg-muted px-2 py-1.5 font-display text-sm";
 
   return (
-    <div className="space-y-4">
+    <div className="mx-auto w-full max-w-md space-y-4 md:max-w-xl">
       <section className="chunky rounded-2xl bg-card p-4">
         <div className="flex items-center justify-between">
           <p className="font-display text-xl">From</p>
           <p className="text-xs font-bold text-muted-foreground">Balance: {bal.toLocaleString(undefined, { maximumFractionDigits: 6 })} {from.symbol}</p>
         </div>
-        <div className="mt-2 flex gap-2">
+        <div className="mt-2 flex flex-col gap-2 sm:flex-row">
           <input value={amountIn} onChange={(e) => setAmountIn(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.0"
-            inputMode="decimal" className="chunky w-full rounded-lg bg-muted px-3 py-2 font-display text-2xl outline-none" />
-          <select value={fromSym} onChange={(e) => setFromSym(e.target.value)} className={selectCls} style={{ maxWidth: "7.5rem" }}>
-            {tokens.filter((t) => t.symbol !== toSym).map((t) => <option key={t.symbol} value={t.symbol}>{t.symbol}</option>)}
-          </select>
+            inputMode="decimal" className="chunky w-full rounded-lg bg-muted px-3 py-2 font-display text-2xl outline-none sm:min-w-0 sm:flex-1" />
+          <TokenSelect tokens={tokens.filter((t) => t.symbol !== toSym)} balances={balances} value={fromSym} onChange={setFromSym} />
         </div>
         <div className="mt-2 grid grid-cols-4 gap-2">
           {[25, 50, 75, 100].map((p) => (
@@ -119,13 +126,11 @@ export function SwapPanel({ wallet, profile }: { wallet: Wallet | null; profile:
 
       <section className="chunky rounded-2xl bg-card p-4">
         <p className="font-display text-xl">To</p>
-        <div className="mt-2 flex gap-2">
-          <div className="chunky flex w-full items-center rounded-lg bg-muted px-3 py-2 font-display text-2xl">
+        <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+          <div className="chunky flex w-full items-center rounded-lg bg-muted px-3 py-2 font-display text-2xl sm:min-w-0 sm:flex-1">
             {quote.isFetching ? "…" : outHuman != null ? outHuman.toLocaleString(undefined, { maximumFractionDigits: 6 }) : "0.0"}
           </div>
-          <select value={toSym} onChange={(e) => setToSym(e.target.value)} className={selectCls} style={{ maxWidth: "7.5rem" }}>
-            {tokens.filter((t) => t.symbol !== fromSym).map((t) => <option key={t.symbol} value={t.symbol}>{t.symbol}</option>)}
-          </select>
+          <TokenSelect tokens={tokens.filter((t) => t.symbol !== fromSym)} balances={balances} value={toSym} onChange={setToSym} />
         </div>
         {quote.isError && parsedIn > 0n && <p className="mt-2 text-xs font-bold text-muted-foreground">No Uniswap pool found for this pair on Base.</p>}
       </section>
@@ -137,6 +142,60 @@ export function SwapPanel({ wallet, profile }: { wallet: Wallet | null; profile:
       {msg && <p className={`text-center text-sm font-bold ${msg.ok ? "text-accent" : "text-muted-foreground"}`}>{msg.text}</p>}
       <p className="text-center text-xs text-muted-foreground">Swaps route through Uniswap V3 on Base. Every $1 swapped earns +1 rank point.</p>
       {!wallet?.authed && <p className="text-center text-sm text-muted-foreground">Sign in to swap from your game wallet.</p>}
+    </div>
+  );
+}
+
+export function TokenSelect({ tokens, balances, value, onChange }: {
+  tokens: Token[]; balances: Map<string, number>; value: string; onChange: (s: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const current = tokens.find((t) => t.symbol === value) ?? tokens[0]!;
+  const list = useMemo(() => tokens
+    .filter((t) => (t.symbol + " " + t.name).toLowerCase().includes(q.trim().toLowerCase()))
+    .sort((a, b) => (balances.get(b.symbol) ?? 0) - (balances.get(a.symbol) ?? 0) || a.symbol.localeCompare(b.symbol)),
+    [tokens, q, balances]);
+  return (
+    <div className="relative shrink-0">
+      <button type="button" onClick={() => { setOpen((o) => !o); setQ(""); }}
+        className="chunky flex w-32 items-center justify-center gap-1.5 rounded-lg bg-muted px-2 py-2 font-display text-sm sm:py-1.5">
+        <span className="grid size-4 shrink-0 place-items-center rounded-full text-[7px] font-black text-foreground" style={{ background: current.color }}>
+          {current.symbol.slice(0, 2)}
+        </span>
+        <span className="truncate">{value}</span>
+        <ChevronDown size={12} className="shrink-0 text-muted-foreground" />
+      </button>
+      {open && (
+        <>
+          <button aria-label="Close token list" onClick={() => setOpen(false)} className="fixed inset-0 z-40 cursor-default" />
+          <div className="chunky absolute right-0 z-50 mt-1 w-72 max-w-[calc(100vw-2rem)] rounded-xl bg-card p-2">
+            <div className="flex items-center gap-2 rounded-lg bg-muted px-2 py-1.5">
+              <Search size={12} className="shrink-0 text-muted-foreground" />
+              <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search stocks…"
+                className="w-full bg-transparent font-display text-sm outline-none placeholder:text-muted-foreground" />
+            </div>
+            <div className="mt-1 max-h-64 overflow-y-auto">
+              {list.map((t) => (
+                <button key={t.symbol} onClick={() => { onChange(t.symbol); setOpen(false); }}
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-muted">
+                  <span className="grid size-6 shrink-0 place-items-center rounded-full text-[8px] font-black text-foreground" style={{ background: t.color }}>
+                    {t.symbol.slice(0, 3)}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-display text-sm leading-tight">{t.symbol}</span>
+                    <span className="block truncate text-[10px] text-muted-foreground">{t.name}</span>
+                  </span>
+                  <span className="shrink-0 text-[10px] font-bold text-muted-foreground">
+                    {(balances.get(t.symbol) ?? 0) > 0 ? (balances.get(t.symbol) ?? 0).toLocaleString(undefined, { maximumFractionDigits: 4 }) : ""}
+                  </span>
+                </button>
+              ))}
+              {!list.length && <p className="px-2 py-3 text-center text-xs text-muted-foreground">No token found</p>}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

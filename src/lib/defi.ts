@@ -20,6 +20,7 @@ export const uniRouterAbi = parseAbi([
 ]);
 
 export const aaveAbi = parseAbi(["function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode)"]);
+export const aavePoolViewAbi = parseAbi(["function getReservesList() view returns (address[])"]);
 export const vaultAbi = parseAbi(["function deposit(uint256 assets, address receiver) returns (uint256)"]);
 export const aeroFactoryAbi = parseAbi(["function getPool(address tokenA, address tokenB, bool stable) view returns (address)"]);
 export const aeroRouterAbi = parseAbi([
