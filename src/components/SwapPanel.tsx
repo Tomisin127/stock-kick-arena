@@ -146,7 +146,7 @@ export function SwapPanel({ wallet, profile }: { wallet: Wallet | null; profile:
   );
 }
 
-function TokenSelect({ tokens, balances, value, onChange }: {
+export function TokenSelect({ tokens, balances, value, onChange }: {
   tokens: Token[]; balances: Map<string, number>; value: string; onChange: (s: string) => void;
 }) {
   const [open, setOpen] = useState(false);
