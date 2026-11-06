@@ -39,7 +39,7 @@ describe("Swap token picker", () => {
   it("sorts tokens you hold a balance of to the top", () => {
     setup({ NVDAc: 5 });
     fireEvent.click(screen.getByRole("button", { name: /ETH/i }));
-    const items = screen.getAllByRole("button").filter((b) => /^NVDAc|^TSLAc/.test(b.textContent ?? ""));
+    const items = screen.getAllByRole("button").filter((b) => /TSLAc|NVDAc/.test(b.textContent ?? ""));
     expect(items.length).toBe(2);
     expect(items[0]?.textContent?.startsWith("NVDAc")).toBe(true);
   });
