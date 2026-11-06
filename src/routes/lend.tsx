@@ -17,7 +17,7 @@ export const Route = createFileRoute("/lend")({
     ],
   }),
   component: () => (
-    <main className="mx-auto max-w-xl space-y-4 px-3 pb-8">
+    <main className="mx-auto max-w-xl space-y-4 px-3 pb-8 sm:max-w-2xl">
       <h1 className="text-center font-display text-stroke text-4xl text-gold">🏦 LEND & RANK UP</h1>
       <ClientOnly fallback={null}><Suspense fallback={null}>
         <GameApp view={(w, p) => <LendPanel wallet={w} profile={p} />} />
