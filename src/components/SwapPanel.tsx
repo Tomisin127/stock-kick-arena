@@ -11,7 +11,7 @@ import type { Profile } from "@/lib/profile";
 import type { Wallet } from "@/components/GameApp";
 
 type Hex = `0x${string}`;
-type Token = { symbol: string; name: string; address: Hex; decimals: number; color: string; isEth?: boolean };
+export type Token = { symbol: string; name: string; address: Hex; decimals: number; color: string; isEth?: boolean };
 const ETH: Token = { symbol: "ETH", name: "Ether", address: WETH, decimals: 18, color: "#627eea", isEth: true };
 const USDC_T: Token = { symbol: "USDC", name: "USD Coin", address: USDC, decimals: USDC_DECIMALS, color: "#2775ca" };
 const FEES = [500, 3000, 10000] as const;

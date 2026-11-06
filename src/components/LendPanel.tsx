@@ -38,7 +38,11 @@ function useOpportunities() {
         { address: AERO_FACTORY, abi: aeroFactoryAbi, functionName: "getPool", args: [t.address, USDC, false] } as const,
         { address: AERO_FACTORY, abi: aeroFactoryAbi, functionName: "getPool", args: [t.address, USDC, true] } as const,
       ]);
-      const pools = await baseClient.multicall({ allowFailure: true, contracts: calls }).catch(() => []);
+      const pools: { status: string; result?: unknown }[] = [];
+      for (let i = 0; i < calls.length; i += 150) {
+        const part = await baseClient.multicall({ allowFailure: true, contracts: calls.slice(i, i + 150) }).catch(() => []);
+        pools.push(...(part as { status: string; result?: unknown }[]));
+      }
       B20_TOKENS.forEach((t, i) => {
         for (const [j, stable] of [0, 1].entries()) {
           const r = pools[i * 2 + j];
