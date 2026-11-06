@@ -17,13 +17,13 @@ function setup(balances: Record<string, number>) {
 }
 
 describe("Swap token picker", () => {
-  it("lists every verified Base tokenized stock plus ETH and USDC, with unique addresses", () => {
+  it("includes every base.org/assets stock (with Apple and Amazon) and unique addresses", () => {
     const syms = new Set(B20_TOKENS.map((t) => t.ticker));
     const addrs = new Set(B20_TOKENS.map((t) => t.address.toLowerCase()));
     expect(addrs.size).toBe(B20_TOKENS.length);
     expect(syms.size).toBe(B20_TOKENS.length);
-    expect(B20_TOKENS.length).toBeGreaterThan(140);
-    for (const s of ["AAPLc", "NVDAc", "TSLAc", "DISc", "GOOGLc", "METAc"]) expect(syms.has(s)).toBe(true);
+    expect(B20_TOKENS.length).toBeGreaterThan(250);
+    for (const s of ["AAPLc", "AMZNc", "NVDAc", "TSLAc", "DISc", "GOOGLc", "METAc"]) expect(syms.has(s)).toBe(true);
   });
 
   it("searches by name or symbol and selects a token", () => {
@@ -32,14 +32,15 @@ describe("Swap token picker", () => {
     expect(screen.getAllByText("TSLAc").length).toBeGreaterThan(0);
     fireEvent.change(screen.getByPlaceholderText("Search stocks…"), { target: { value: "tesla" } });
     expect(screen.queryAllByText("NVDAc")).toHaveLength(0);
-    fireEvent.click(screen.getByRole("button", { name: /^TSLAc/ }));
+    fireEvent.click(screen.getByRole("button", { name: /TSLAc/ }));
     expect(onChange).toHaveBeenCalledWith("TSLAc");
   });
 
   it("sorts tokens you hold a balance of to the top", () => {
     setup({ NVDAc: 5 });
     fireEvent.click(screen.getByRole("button", { name: /ETH/i }));
-    const items = screen.getAllByRole("button").filter((b) => b.textContent?.startsWith("NVDAc") || b.textContent?.startsWith("TSLAc"));
+    const items = screen.getAllByRole("button").filter((b) => /^NVDAc|^TSLAc/.test(b.textContent ?? ""));
+    expect(items.length).toBe(2);
     expect(items[0]?.textContent?.startsWith("NVDAc")).toBe(true);
   });
 });
