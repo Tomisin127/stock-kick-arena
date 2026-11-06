@@ -5,7 +5,7 @@ import { B20_TOKENS } from "@/lib/b20";
 
 const tokens: Token[] = [
   { symbol: "ETH", name: "Ether", address: "0x4200000000000000000000000000000000000006", decimals: 18, color: "#627eea", isEth: true },
-  { symbol: "USDC", name: "USD Coin", address: "0x833589fCD6eDb6E08f4c7C32D4b71b54bdA02913", decimals: 6, color: "#2775ca" },
+  { symbol: "USDC", name: "USD Coin", address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", decimals: 6, color: "#2775ca" },
   { symbol: "TSLAc", name: "Tesla", address: "0xb2000000000000000000001e800a7f5189430cD0", decimals: 8, color: "#3ed7c3" },
   { symbol: "NVDAc", name: "NVIDIA", address: "0xb20000000000000000000078ee7ce2fE4908108C", decimals: 8, color: "#28835f" },
 ];
