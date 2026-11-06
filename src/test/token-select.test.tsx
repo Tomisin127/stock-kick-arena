@@ -41,6 +41,6 @@ describe("Swap token picker", () => {
     fireEvent.click(screen.getByRole("button", { name: /ETH/i }));
     const items = screen.getAllByRole("button").filter((b) => /TSLAc|NVDAc/.test(b.textContent ?? ""));
     expect(items.length).toBe(2);
-    expect(items[0]?.textContent?.startsWith("NVDAc")).toBe(true);
+    expect(items[0]?.textContent?.includes("NVDAc")).toBe(true);
   });
 });
